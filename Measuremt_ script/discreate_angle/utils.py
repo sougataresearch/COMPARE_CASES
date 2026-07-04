@@ -89,7 +89,13 @@ def sanitize_folder_name(name: str) -> str:
     """
 
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip().rstrip(". ")
-    return cleaned or "sample"
+    # An all-symbol input (e.g. "///") cleans to a non-empty string of just
+    # underscores, which technically works as a folder name but isn't a
+    # usable sample identifier — fall back for that case too, not just a
+    # literally empty result.
+    if not any(character.isalnum() for character in cleaned):
+        return "sample"
+    return cleaned
 
 
 def _next_available(path: Path) -> Path:
@@ -201,13 +207,16 @@ def check_environment(output_root: Path = DATA_ROOT) -> list[tuple[str, bool, st
     return checks
 
 
-def estimate_disk_bytes(image_count: int, width: int = 3840, height: int = 2748) -> int:
+def estimate_disk_bytes(image_count: int, width: int, height: int) -> int:
     """Conservative uncompressed 8-bit BMP estimate, including small headers.
 
-    Called from 01_main.run_session() after states are generated, to warn
-    the operator (and abort) if the planned scan would not fit on disk.
-    width/height default to the IDS U3-3890CP-M-GL's full sensor resolution;
-    update these two defaults if a different camera model is used.
+    Called from 01_main.check_disk_space() after states are generated, to
+    warn the operator (and abort) if the planned scan would not fit on
+    disk. width/height are deliberately required, not defaulted here —
+    01_main passes camera.frame_width/frame_height, the camera's own
+    actual configured frame size (real hardware) or
+    config.FALLBACK_SENSOR_WIDTH/HEIGHT (dry-run only), rather than a
+    second guessed constant living in this file too.
     """
 
     return image_count * (width * height + 4096)

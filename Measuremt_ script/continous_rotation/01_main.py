@@ -406,11 +406,16 @@ def run_fresh_session(initial_run: Path) -> int:
                 completed, failed = engine.run_continuous()
                 print(f"Continuous run complete: {completed} frames, {failed} failures.")
                 print(f"Data directory: {run}")
-                print("Rehoming motors before disconnect...")
-                try:
-                    motors.home_all()
-                except Exception as exc:
-                    print(f"Post-measurement rehoming warning: {exc}")
+                # Plain yes_no, not confirm_stage: declining just skips the
+                # rehome for this sample, it should not cancel the whole
+                # session the way every other confirm_stage() gate does.
+                if yes_no("Rehome motors before disconnect? (ensure nothing will interfere with rotation)", default=True):
+                    try:
+                        motors.home_all()
+                    except Exception as exc:
+                        print(f"Post-measurement rehoming warning: {exc}")
+                else:
+                    print("Rehoming skipped by operator.")
             except NotImplementedError as exc:
                 print(f"Continuous acquisition not started: {exc}")
                 return 0

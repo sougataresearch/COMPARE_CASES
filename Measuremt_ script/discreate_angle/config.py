@@ -67,6 +67,20 @@ REQUIRED_KINESIS_DLLS = (
 # configuration; a mismatch causes Kinesis to load the wrong motion profile.
 MOTOR_SETTINGS_NAME = "K10CR2"
 
+# EXPERIMENT SETTING — VERIFY AGAINST THE ACTUAL CAMERA DATASHEET.
+# Fallback sensor dimensions used ONLY in dry-run (there is no real device to
+# read Width/Height from). Real runs instead read the camera's actual
+# configured Width/Height GenICam nodes — see CameraController.frame_width/
+# frame_height — so this constant cannot silently produce a wrong disk-space
+# estimate on real hardware, only in dry-run. Chosen as the larger (safer,
+# over- rather than under-estimating) of two conflicting values found in this
+# project: this file previously defaulted to 3840x2748, while
+# MMIE_Control/mmie/config.py documents the same IDS U3-3890CP-M-GL at
+# 4000x3000. Confirm the correct value against the datasheet or a real
+# camera.Width/Height() readback and correct this if needed.
+FALLBACK_SENSOR_WIDTH = 4000
+FALLBACK_SENSOR_HEIGHT = 3000
+
 
 @dataclass(slots=True)
 class CameraSettings:

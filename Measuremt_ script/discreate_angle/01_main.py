@@ -432,13 +432,16 @@ def write_error_traceback(run: Path) -> None:
     print(details)
 
 
-def check_disk_space(run: Path, state_count: int) -> bool:
+def check_disk_space(run: Path, state_count: int, camera: CameraController) -> bool:
     """Print the estimated-vs-free disk space for ``state_count`` images and
     return whether there's enough room. Called once per sample (not just
     once per session), since earlier samples in the same session consume
-    space that reduces what's left for later ones."""
+    space that reduces what's left for later ones. Uses the camera's own
+    actual frame_width/frame_height (real hardware) or the documented
+    dry-run fallback, rather than a second guessed constant — see
+    config.FALLBACK_SENSOR_WIDTH/HEIGHT."""
 
-    estimate = estimate_disk_bytes(state_count)
+    estimate = estimate_disk_bytes(state_count, camera.frame_width, camera.frame_height)
     free = shutil.disk_usage(run).free
     print(f"Estimated image space: {estimate / 1024**3:.2f} GB; free: {free / 1024**3:.2f} GB")
     if estimate > free:
@@ -474,8 +477,6 @@ def run_resumed_session(
     states = states_from_config(config)
     print(f"Resuming saved {mode} experiment: {run}")
 
-    if not check_disk_space(run, len(states)):
-        return 2
     if not yes_no("Begin hardware initialization and acquisition?"):
         print(f"Configuration retained at {run}")
         return 0
@@ -510,6 +511,10 @@ def run_resumed_session(
         write_json(run / "Config" / "experiment_config.json", config.to_dict())
         camera.initialize(ask_settings=ask_camera_settings)
         write_json(run / "Config" / "experiment_config.json", config.to_dict())
+        # Needs the camera's actual frame_width/height, only known after
+        # initialize() — see check_disk_space()'s docstring.
+        if not check_disk_space(run, len(states), camera):
+            return 2
         capture_camera_references(run, dry_run, motors, camera, config.camera, config.timing)
         confirm_stage(
             "Reference and camera verification complete. Insert the sample now, "
@@ -519,11 +524,15 @@ def run_resumed_session(
         completed, failed = engine.run_discrete(states)
         print(f"Experiment complete: {completed} images, {failed} failures.")
         print(f"Data directory: {run}")
-        print("Rehoming motors before disconnect...")
-        try:
-            motors.home_all()
-        except Exception as exc:
-            print(f"Post-measurement rehoming warning: {exc}")
+        # Plain yes_no, not confirm_stage: declining just skips the rehome,
+        # it should not cancel an already-successful experiment.
+        if yes_no("Rehome motors before disconnect? (ensure nothing will interfere with rotation)", default=True):
+            try:
+                motors.home_all()
+            except Exception as exc:
+                print(f"Post-measurement rehoming warning: {exc}")
+        else:
+            print("Rehoming skipped by operator.")
         return 0
     except EmergencyStopRequested as exc:
         print(exc)
@@ -653,7 +662,7 @@ def run_fresh_session(initial_run: Path) -> int:
             )
             write_json(run / "Config" / "experiment_config.json", config.to_dict())
 
-            if not check_disk_space(run, len(states)):
+            if not check_disk_space(run, len(states), camera):
                 return 2
             if not yes_no("Begin acquisition for this sample?"):
                 print(f"Configuration retained at {run}")
@@ -672,11 +681,16 @@ def run_fresh_session(initial_run: Path) -> int:
                 completed, failed = engine.run_discrete(states)
                 print(f"Experiment complete: {completed} images, {failed} failures.")
                 print(f"Data directory: {run}")
-                print("Rehoming motors before disconnect...")
-                try:
-                    motors.home_all()
-                except Exception as exc:
-                    print(f"Post-measurement rehoming warning: {exc}")
+                # Plain yes_no, not confirm_stage: declining just skips the
+                # rehome for this sample, it should not cancel the whole
+                # session the way every other confirm_stage() gate does.
+                if yes_no("Rehome motors before disconnect? (ensure nothing will interfere with rotation)", default=True):
+                    try:
+                        motors.home_all()
+                    except Exception as exc:
+                        print(f"Post-measurement rehoming warning: {exc}")
+                else:
+                    print("Rehoming skipped by operator.")
             except (EmergencyStopRequested, KeyboardInterrupt):
                 # An emergency stop/Ctrl-C always ends the WHOLE session, never
                 # just this sample — propagate to the outer handler below.

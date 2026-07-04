@@ -15,6 +15,22 @@ become mode-keyed dicts (mirroring `discreate_angle/config.py`'s
 `ACTIVE_MOTORS`), and `capture_camera_references()`/parking would need a
 3×3 branch — see the project history for the fuller discussion.
 
+## Testing
+
+```powershell
+python -m unittest test_pure_functions -v
+```
+
+Covers this folder's hardware-independent logic — deliberate duplicate in
+spirit of `../discreate_angle/test_pure_functions.py`. A couple of
+ROI-selection tests need NumPy and are skipped if it isn't installed; run
+this on the lab PC to actually exercise them, since dry-run mode never does.
+
+`../check_config_sync.py` diffs `MOTOR_SN`/`ZERO_OFFSET` between this
+folder's `config.py` and `discreate_angle/config.py` (hand-duplicated by
+design, so nothing else catches drift after a recalibration). Run it by
+hand after any hardware change.
+
 ## Current status
 
 Everything up to the acquisition loop itself is implemented and runs today,
@@ -109,12 +125,18 @@ earlier completed samples are unaffected).
 | `logger_manager.py` | Transcript, per-frame CSV logging, final report — continuous-shaped columns. |
 | `continuous_engine.py` | **The unimplemented acquisition loop.** Read its docstring first. |
 | `calibration.py` | Ad-hoc zero-offset/verification helpers, plus `verify_with_reference_sample()` — moves a motorized `SAMPLE` stage (a known reference optic, not a real specimen) for system self-verification. Not called from `01_main.py`. |
+| `test_pure_functions.py` | Automated tests for this folder's hardware-independent logic. Run with `python -m unittest test_pure_functions -v`. |
 
 ## Settings to verify before any real run
 
 `config.py`'s `MOTOR_SN` and `ZERO_OFFSET` are duplicated by hand from
 `../discreate_angle/config.py`, not imported — if you recalibrate a motor
-or swap hardware, update both files. Both also carry a `"SAMPLE"` entry for
+or swap hardware, update both files (or run `../check_config_sync.py` to
+check they still agree). Both also carry a `"SAMPLE"` entry for
 the optional motorized reference-optic stage used only by
 `calibration.verify_with_reference_sample()`; it is not part of
 `ACTIVE_MOTORS` and is never touched during a normal run.
+
+`FALLBACK_SENSOR_WIDTH`/`HEIGHT` are dry-run-only placeholders — verify
+against your camera's actual datasheet. `CameraController.frame_width`/
+`frame_height` read the real values from the camera on non-dry-run runs.

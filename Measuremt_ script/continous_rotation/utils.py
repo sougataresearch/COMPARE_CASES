@@ -49,7 +49,13 @@ def sanitize_folder_name(name: str) -> str:
     """
 
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip().rstrip(". ")
-    return cleaned or "sample"
+    # An all-symbol input (e.g. "///") cleans to a non-empty string of just
+    # underscores, which technically works as a folder name but isn't a
+    # usable sample identifier — fall back for that case too, not just a
+    # literally empty result.
+    if not any(character.isalnum() for character in cleaned):
+        return "sample"
+    return cleaned
 
 
 def _next_available(path: Path) -> Path:

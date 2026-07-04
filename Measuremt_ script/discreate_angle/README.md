@@ -11,6 +11,27 @@ This folder covers **3×3** and **4×4 discrete** (stepped-QWP) acquisition only
 4×4 continuous rotation is a separate, independent implementation in
 `../continous_rotation/` — the two folders share no code or run data.
 
+## Testing
+
+```powershell
+python -m unittest test_pure_functions -v
+```
+
+Covers the hardware-independent logic (angle parsing/conversion, folder
+naming/collision handling, state generation, checkpoint math, ROI
+selection) that was previously only checked by manually running `01_main.py`
+in dry-run mode. Three ROI-selection tests need NumPy and are skipped if
+it isn't installed — run this on the lab PC (which already requires NumPy)
+to actually exercise them; dry-run mode never does, since there are no real
+pixels to select an ROI from.
+
+`../check_config_sync.py` (one level up, shared with `continous_rotation/`)
+is a separate, standalone script — not part of either `01_main.py` — that
+diffs `MOTOR_SN`/`ZERO_OFFSET` between this folder's `config.py` and the
+other's, since the two are hand-duplicated by design and nothing else
+catches them drifting apart after a recalibration. Run it by hand after any
+hardware change.
+
 ## Which file should I run?
 
 Run only:
@@ -417,6 +438,7 @@ resuming.
 | `logger_manager.py` | CSV logging and final report generation | No |
 | `checkpoint_manager.py` | Atomic crash-recovery checkpoints | No |
 | `calibration.py` | Optical-zero and verification-scan utilities | No |
+| `test_pure_functions.py` | Automated tests for the hardware-independent logic above (`python -m unittest test_pure_functions -v`) | No — run via `unittest`, see "Testing" above |
 
 Every function below also has a matching explanatory comment directly above
 it in the source file — read this table alongside the code with `#`
@@ -433,6 +455,7 @@ comments open to cross-check both at once.
 | `KINESIS_DIR` | `config.py` | Path to the Thorlabs Kinesis install. Checked by `utils.check_environment()` and used by `motor_controller._load_kinesis()`. |
 | `MOTOR_SETTINGS_NAME` | `config.py` | Must match the K10CR2 device-settings profile name shown in Kinesis. |
 | `CameraSettings.mean_too_dark` / `mean_too_bright` | `config.py` | Image-quality warning thresholds used in `camera_controller.save_bmp()`. Advisory only — does not block a run. |
+| `FALLBACK_SENSOR_WIDTH` / `FALLBACK_SENSOR_HEIGHT` | `config.py` | Dry-run-only frame size for the disk-space estimate — verify against your camera's actual datasheet/reported dimensions. Real runs read the camera's own `Width`/`Height` instead (`CameraController.frame_width`/`frame_height`), so this constant can't silently misestimate a real run. |
 | `TimingSettings.position_tolerance_deg` | `config.py` | Maximum allowed motor position error before a move is retried/failed. |
 | `TimingSettings.*_s` delays, `motor_max_retries`, `CameraSettings.max_retries` | `config.py` | Retry counts and settle/backoff delays; tune for your hardware's noise and speed. |
 
@@ -503,7 +526,7 @@ zero, new lab PC, etc.).
 | `rename_run_directory` | Renames an existing run folder to `Data/YYYY-MM-DD_<name>` in place — used once, for the first sample of a session, after a "pending" placeholder is created. |
 | `write_json` | Atomic JSON write (write to `.tmp`, then rename) so crashes can't leave a half-written file. |
 | `check_environment` | Import/filesystem-only diagnostic checks (Python version, packages, Kinesis DLLs, disk space). |
-| `estimate_disk_bytes` | Conservative BMP size estimate used for the pre-run disk-space check. |
+| `estimate_disk_bytes` | BMP size estimate used for the pre-run disk-space check. Takes width/height as required arguments — see `config.FALLBACK_SENSOR_WIDTH`/`HEIGHT` and `CameraController.frame_width`/`frame_height` for where callers get them from. |
 | `yes_no` | Y/n prompt helper used throughout `01_main.py`. |
 | `print_angles` | Prints an angle list next to its motor-angle equivalent, for operator sanity-checking. |
 

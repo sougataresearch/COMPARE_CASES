@@ -10,10 +10,11 @@ driven through the IDS Peak SDK.
 ```
 control/
 ├── Measuremt_ script/
-│   ├── discreate_angle/     ← 3x3 and 4x4 discrete acquisition (production)
-│   ├── continous_rotation/  ← 4x4 continuous rotation (independent, WIP)
-│   └── MMIE_Control/        ← earlier notebook-based reference implementation
-└── matrix/                  ← offline Mueller matrix reconstruction from saved images
+│   ├── discreate_angle/       ← 3x3 and 4x4 discrete acquisition (production)
+│   ├── continous_rotation/    ← 4x4 continuous rotation (independent, WIP)
+│   ├── MMIE_Control/          ← earlier notebook-based reference implementation
+│   └── check_config_sync.py   ← standalone: diffs motor calibration between the two folders
+└── matrix/                    ← offline Mueller matrix reconstruction from saved images
 ```
 
 The two acquisition folders under `Measuremt_ script/` are **deliberately
@@ -77,6 +78,15 @@ Based on: S. Obando-Vasquez, A. Doblas, and C. Trujillo, *"Apparatus and
 method to estimate the Mueller matrix in bright-field microscopy,"* Applied
 Optics (2021).
 
+### `Measuremt_ script/check_config_sync.py`
+
+Standalone diagnostic (not called by either `01_main.py`) that diffs
+`MOTOR_SN`/`ZERO_OFFSET` between the two acquisition folders' `config.py`
+files — they're hand-duplicated by design (no shared code), so nothing else
+catches them drifting apart after a recalibration or hardware swap in only
+one file. Run `python check_config_sync.py` from inside `Measuremt_ script/`
+after any hardware change.
+
 ## Getting started
 
 1. Install Thorlabs Kinesis (64-bit) and the IDS Peak SDK on the lab PC.
@@ -87,3 +97,7 @@ Optics (2021).
    the other modules directly.
 4. Use dry-run mode first to verify the full software pipeline without
    touching hardware.
+5. Each acquisition folder has a `test_pure_functions.py` covering its
+   hardware-independent logic — run `python -m unittest test_pure_functions
+   -v` from inside it. A few ROI-selection tests need NumPy and are skipped
+   without it (dry-run never exercises that code either).

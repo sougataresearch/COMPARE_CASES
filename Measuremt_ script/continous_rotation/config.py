@@ -50,6 +50,15 @@ REQUIRED_KINESIS_DLLS = (
 )
 MOTOR_SETTINGS_NAME = "K10CR2"
 
+# EXPERIMENT SETTING — VERIFY AGAINST THE ACTUAL CAMERA DATASHEET. Deliberate
+# duplicate of discreate_angle/config.py's FALLBACK_SENSOR_WIDTH/HEIGHT — see
+# that file's docstring for why this exists (two conflicting hardcoded guesses
+# were found elsewhere in this project). Used only in dry-run, by
+# CameraController.frame_width/frame_height; real runs read the camera's own
+# configured Width/Height GenICam nodes instead.
+FALLBACK_SENSOR_WIDTH = 4000
+FALLBACK_SENSOR_HEIGHT = 3000
+
 # 4x4 continuous always uses all four motors: the two polarizers are parked
 # at a fixed optical angle, while both QWPs spin continuously at the
 # configured revolution ratio.

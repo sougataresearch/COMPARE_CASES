@@ -6,7 +6,7 @@ import struct
 import time
 from pathlib import Path
 
-from config import CameraSettings
+from config import FALLBACK_SENSOR_HEIGHT, FALLBACK_SENSOR_WIDTH, CameraSettings
 
 
 class CameraError(RuntimeError):
@@ -50,6 +50,13 @@ class CameraController:
         # (no real pixels exist to select an ROI from). Used by select_roi()/
         # roi_mean() in 01_main.capture_camera_references().
         self.last_image_array = None
+        # Frame dimensions used for the pre-run disk-space estimate
+        # (utils.estimate_disk_bytes()). Real runs get these from the
+        # camera's actual configured Width/Height GenICam nodes (set in
+        # _apply_acquisition_settings()); dry-run has no device to read them
+        # from, so initialize() fills in config.FALLBACK_SENSOR_WIDTH/HEIGHT.
+        self.frame_width: int = 0
+        self.frame_height: int = 0
 
     @staticmethod
     def _no_devices(devices) -> bool:
@@ -120,6 +127,8 @@ class CameraController:
             self.settings.applied_exposure_us = self.settings.exposure_us
             self.settings.applied_frame_rate_fps = self.settings.frame_rate_fps
             self.settings.applied_gain = self.settings.gain
+            self.frame_width = FALLBACK_SENSOR_WIDTH
+            self.frame_height = FALLBACK_SENSOR_HEIGHT
             print("Camera initialized in dry-run mode.")
             print(f"Pixel format: {self.settings.pixel_format}")
             print(f"Applied exposure: {self.settings.exposure_us / 1000.0:.3f} ms")
@@ -190,6 +199,12 @@ class CameraController:
             print(f"Camera default-user-set warning: {exc}")
 
         self._set_node("PixelFormat", self.settings.pixel_format)
+        # Ground truth for the disk-space estimate: the camera's own
+        # configured frame size, not a guessed constant (see
+        # config.FALLBACK_SENSOR_WIDTH/HEIGHT's docstring for why this
+        # matters — two hardcoded guesses in this project disagreed).
+        self.frame_width = int(self._read_node("Width"))
+        self.frame_height = int(self._read_node("Height"))
         try:
             self._set_node("ExposureTime", self.settings.exposure_us)
         except Exception as exc:
