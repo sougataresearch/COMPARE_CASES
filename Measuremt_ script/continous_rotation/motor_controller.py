@@ -234,6 +234,21 @@ class MotorController:
             return
         self.devices[name].SetVelocityParams(self.Decimal(accel_deg_s2), self.Decimal(max_velocity_deg_s))
 
+    def set_all_velocity(self, max_velocity_deg_s: float, accel_deg_s2: float) -> None:
+        """Apply the same explicit velocity/acceleration to every active
+        motor. Called from 01_main.initialize_motors(), after enable_all()
+        and before home_all(), as a uniform baseline for point-to-point
+        moves (homing, optical-zero, parking the polarizers) — set in
+        software rather than left at whatever the device/Kinesis profile
+        last stored. This is distinct from the per-sample, ratio-scaled
+        velocity continuous_engine.py sets on PSA_QWP right before spinning
+        starts (see that module's docstring, step 3)."""
+
+        for index, name in enumerate(self.names):
+            self.set_velocity(name, max_velocity_deg_s, accel_deg_s2)
+            self._inter_motor_pause(index)
+        print("All motors set to the configured rotation velocity.")
+
     def start_continuous(self, name: str, forward: bool = True) -> None:
         """Begin continuous rotation on one QWP axis (non-blocking).
 

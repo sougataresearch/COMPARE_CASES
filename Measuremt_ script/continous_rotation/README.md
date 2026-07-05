@@ -70,8 +70,8 @@ Everything up to the acquisition loop itself is implemented and runs today,
 including in dry-run mode:
 
 - Environment verification, hardware bring-up (discover → connect →
-  initialize → enable → home → optical zero) — once per session, same
-  safety-confirmation gates as discrete mode.
+  initialize → enable → set velocity → home → optical zero) — once per
+  session, same safety-confirmation gates as discrete mode.
 - Camera Cockpit-guided exposure/frame-rate setup — once per session.
 - A multi-sample loop: parking `PSG_Polarizer`/`PSA_Analyzer` at that
   sample's fixed optical angle, an automatic bright/dark reference pair
@@ -118,8 +118,8 @@ Do you have a motorized SAMPLE stage for this sample?
 ```
 
 Answering yes runs the exact same bring-up sequence as the other motors —
-discover → connect → initialize → enable → home — scoped to just the
-`SAMPLE` axis, then asks for the target optical angle (e.g. `30`, `45`, or
+discover → connect → initialize → enable → set velocity → home — scoped to
+just the `SAMPLE` axis, then asks for the target optical angle (e.g. `30`, `45`, or
 any arbitrary angle) and moves there (`motor angle = (optical angle +
 ZERO_OFFSET["SAMPLE"]) modulo 360`). Verify that orientation with a
 polarimeter, confirm, and the SAMPLE stage is disconnected again
@@ -133,6 +133,22 @@ is saved as `sample_stage_optical_angle` in `Config/experiment_config.json`.
 Separate from `calibration.verify_with_reference_sample()`, which uses the
 same `SAMPLE` motor but for a *known* reference optic during system
 self-verification, not for orienting a real specimen.
+
+## Rotation velocity
+
+Every active motor's velocity/acceleration is set explicitly in software
+(`MotorController.set_all_velocity()`, Kinesis `SetVelocityParams()`) once
+per session, after `enable_all()` and before `home_all()` — **not** left at
+whatever happened to already be stored on the device or its Kinesis
+profile. At bring-up time this applies `TimingSettings
+.base_angular_velocity_deg_s` (default 10 deg/s) uniformly to all four
+motors, since no sample's rotation ratio is known yet. Once a sample's
+ratio is chosen and continuous spinning is about to start, the (currently
+unimplemented) `continuous_engine.py` re-sets `PSA_QWP`'s velocity to
+`base_angular_velocity_deg_s × ratio` — e.g. `10 × 5 = 50 deg/s` for a
+`1:5` ratio — while `PSG_QWP` stays at the base rate (see that module's
+docstring, step 3). The motorized `SAMPLE` stage (above) gets the same
+explicit baseline velocity applied during its own bring-up.
 
 ## The one open decision blocking the acquisition loop
 

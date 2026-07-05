@@ -168,6 +168,15 @@ class TimingSettings:
     # be accepted. Tighten this for higher-precision work; loosen it if a
     # motor's encoder noise causes spurious retries.
     position_tolerance_deg: float = 0.1
+    # EXPERIMENT SETTING. Explicit velocity profile applied to every active
+    # motor once, during initialize_motors() — set in software
+    # (MotorController.set_all_velocity(), Kinesis SetVelocityParams())
+    # rather than left at whatever default happens to be stored on the
+    # device/Kinesis profile, so the rotation speed used for every point-to-
+    # point move (homing, optical-zero, every measurement state) is known
+    # and reproducible across motors/lab computers.
+    rotation_velocity_deg_s: float = 10.0
+    rotation_accel_deg_s2: float = 20.0
 
 
 @dataclass(slots=True)

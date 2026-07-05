@@ -193,13 +193,14 @@ def confirm_stage(text: str) -> None:
         raise KeyboardInterrupt("Operator cancelled initialization.")
 
 
-def initialize_motors(motors: MotorController) -> None:
+def initialize_motors(motors: MotorController, timing: TimingSettings) -> None:
     """Run the full hardware bring-up sequence for the active motors, with
     an operator confirmation gate before each stage:
-    discover -> connect_all -> initialize_all -> enable_all -> home_all ->
-    move_to_optical_zero_all. Called once per session (not per sample —
-    see run_fresh_session()), after the "Begin hardware initialization?"
-    confirmation. See motor_controller.py for what each stage does.
+    discover -> connect_all -> initialize_all -> enable_all ->
+    set_all_velocity -> home_all -> move_to_optical_zero_all. Called once
+    per session (not per sample — see run_fresh_session()), after the
+    "Begin hardware initialization?" confirmation. See motor_controller.py
+    for what each stage does.
     """
 
     motors.discover()
@@ -209,7 +210,9 @@ def initialize_motors(motors: MotorController) -> None:
     motors.initialize_all()
     confirm_stage("Initialization complete. Enable motors?")
     motors.enable_all()
-    confirm_stage("Motors enabled. Home active motors?")
+    confirm_stage("Motors enabled. Set rotation velocity/acceleration?")
+    motors.set_all_velocity(timing.rotation_velocity_deg_s, timing.rotation_accel_deg_s2)
+    confirm_stage("Velocity set. Home active motors?")
     motors.home_all()
     confirm_stage("Homing complete. Move to configured optical zero offsets?")
     motors.move_to_optical_zero_all()
@@ -223,8 +226,9 @@ def setup_sample_stage(timing: TimingSettings, dry_run: bool) -> float | None:
     capture_camera_references() (which needs an empty beam path). If the
     operator says yes, this runs the exact same bring-up sequence as
     initialize_motors() — discover -> connect -> initialize -> enable ->
-    home — but scoped to just the "SAMPLE" motor (config.MOTOR_SN["SAMPLE"]/
-    ZERO_OFFSET["SAMPLE"]), since MotorController.names is otherwise fixed to
+    set_all_velocity -> home — but scoped to just the "SAMPLE" motor
+    (config.MOTOR_SN["SAMPLE"]/ZERO_OFFSET["SAMPLE"]), since
+    MotorController.names is otherwise fixed to
     whatever ACTIVE_MOTORS[mode] chose for this session. Then asks the
     target optical angle (e.g. 30, 45, or any arbitrary angle) and moves
     there via optical_to_motor(angle, ZERO_OFFSET["SAMPLE"]) so the operator
@@ -253,7 +257,9 @@ def setup_sample_stage(timing: TimingSettings, dry_run: bool) -> float | None:
     sample_motor.initialize_all()
     confirm_stage("SAMPLE stage initialized. Enable it?")
     sample_motor.enable_all()
-    confirm_stage("SAMPLE stage enabled. Home it?")
+    confirm_stage("SAMPLE stage enabled. Set rotation velocity/acceleration?")
+    sample_motor.set_all_velocity(timing.rotation_velocity_deg_s, timing.rotation_accel_deg_s2)
+    confirm_stage("Velocity set. Home it?")
     sample_motor.home_all()
 
     optical_angle = ask_float(
@@ -570,7 +576,7 @@ def run_resumed_session(
     signal.signal(signal.SIGINT, request_stop)
     try:
         detect_camera(camera)
-        initialize_motors(motors)
+        initialize_motors(motors, config.timing)
         guided_camera_setup(dry_run, motors, camera, config.camera, config.timing)
         write_json(run / "Config" / "experiment_config.json", config.to_dict())
         camera.initialize(ask_settings=ask_camera_settings)
@@ -690,7 +696,7 @@ def run_fresh_session(initial_run: Path) -> int:
 
         # One-time bring-up, before any sample is known.
         detect_camera(camera)
-        initialize_motors(motors)
+        initialize_motors(motors, timing_settings)
         guided_camera_setup(dry_run, motors, camera, camera_settings, timing_settings)
         camera.initialize(ask_settings=ask_camera_settings)
 

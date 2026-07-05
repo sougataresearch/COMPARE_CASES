@@ -231,7 +231,9 @@ Verify software environment
         ↓
 Detect the camera (fails fast, before any motor time is spent)
         ↓
-Discover, connect, initialize, enable, and home the required motors
+Discover, connect, initialize, and enable the required motors
+        ↓
+Set rotation velocity/acceleration explicitly (not a device default), then home
         ↓
 Move to optical-zero offsets
         ↓
@@ -288,6 +290,25 @@ the next one, rather than losing the rest of the queue.
 Mode (3×3 vs 4×4) is fixed for the whole session — switching between them
 mid-session would change which motors are active, which really does
 require a reconnect, so that stays a restart-the-script situation.
+
+## Rotation velocity
+
+Every active motor's velocity/acceleration is set explicitly in software
+(`MotorController.set_all_velocity()`, Kinesis `SetVelocityParams()`) once
+per session, after `enable_all()` and before `home_all()` — **not** left at
+whatever happened to already be stored on the device or its Kinesis
+profile. This is the same trapezoidal profile `MoveTo()` uses for every
+point-to-point move (homing, optical-zero, every measurement state), so
+every motor moves at a known, reproducible speed regardless of what was
+last configured in the Kinesis application. Configured in `config.py`:
+
+```python
+TimingSettings.rotation_velocity_deg_s = 10.0   # deg/s, all active motors
+TimingSettings.rotation_accel_deg_s2 = 20.0      # deg/s^2, all active motors
+```
+
+The motorized `SAMPLE` stage (below) gets the same explicit velocity
+applied during its own bring-up.
 
 ## Motorized SAMPLE stage (optional, per sample)
 
@@ -582,6 +603,7 @@ comments open to cross-check both at once.
 | `CameraSettings.mean_too_dark` / `mean_too_bright` | `config.py` | Image-quality warning thresholds used in `camera_controller.save_bmp()`. Advisory only — does not block a run. |
 | `FALLBACK_SENSOR_WIDTH` / `FALLBACK_SENSOR_HEIGHT` | `config.py` | Dry-run-only frame size for the disk-space estimate — verify against your camera's actual datasheet/reported dimensions. Real runs read the camera's own `Width`/`Height` instead (`CameraController.frame_width`/`frame_height`), so this constant can't silently misestimate a real run. |
 | `TimingSettings.position_tolerance_deg` | `config.py` | Maximum allowed motor position error before a move is retried/failed. |
+| `TimingSettings.rotation_velocity_deg_s` / `rotation_accel_deg_s2` | `config.py` | Explicit velocity/acceleration applied to every active motor (`MotorController.set_all_velocity()`) — see "Rotation velocity" above. |
 | `TimingSettings.*_s` delays, `motor_max_retries`, `CameraSettings.max_retries` | `config.py` | Retry counts and settle/backoff delays; tune for your hardware's noise and speed. |
 
 ### Every experiment (answered as prompts by `01_main.py`, not edited in code)
@@ -617,7 +639,7 @@ zero, new lab PC, etc.).
 | `states_from_config` | Rebuilds the identical `MeasurementState` list from a saved config, for `--resume`, without re-asking the operator. |
 | `confirm_stage` | Yes/no gate before a safety-sensitive step; "no" cancels the whole session. |
 | `detect_camera` | Probes the camera (`camera.discover()`) and confirms it, before any motor step — so a missing camera aborts before motor time is spent homing. |
-| `initialize_motors` | Runs discover → connect → initialize → enable → home → move-to-optical-zero, each behind a `confirm_stage`. Runs once per session. |
+| `initialize_motors` | Runs discover → connect → initialize → enable → set velocity → home → move-to-optical-zero, each behind a `confirm_stage`. Runs once per session. |
 | `move_analyzer_to_optical` | Moves `PSA_Analyzer` to a given optical angle (used by camera checks/references, not the main measurement loop). |
 | `guided_camera_setup` | Confirms the light source is on, then walks the operator through the IDS Peak Cockpit bright/dark/exposure checks and records the chosen exposure/frame rate. Runs once per session. |
 | `capture_camera_references` | Re-confirms illumination is on, captures/verifies the `BrightReference_0_0.bmp` / `DarkReference_0_90.bmp` images, selects the bright/dark ROI, and checks bright > dark with no saturation. Runs once **per sample**. |
@@ -671,6 +693,7 @@ zero, new lab PC, etc.).
 | `angular_error_deg` | Shortest angular distance between two wrapped (0–360°) angles. |
 | `MotorController.discover` | Lists USB motors and verifies every active motor's `MOTOR_SN` is configured and present. |
 | `MotorController.connect_all` / `initialize_all` / `enable_all` / `home_all` | Sequential Kinesis bring-up: connect, load settings profile, enable, home — one motor at a time, never in parallel. |
+| `MotorController.set_velocity` / `set_all_velocity` | Sets one (or every active) motor's velocity/acceleration explicitly in software (Kinesis `SetVelocityParams`) — see "Rotation velocity" above. |
 | `MotorController.move_to_optical_zero_all` | Moves every active motor to its `ZERO_OFFSET`. |
 | `MotorController.move_motor_angle` | Moves one axis and verifies the encoder position is within `position_tolerance_deg`, retrying on failure. The core move primitive everything else calls. |
 | `MotorController.move_state` | Moves every axis needed for one `MeasurementState`, in a fixed order. |

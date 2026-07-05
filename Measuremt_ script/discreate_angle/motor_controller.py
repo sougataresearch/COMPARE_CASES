@@ -197,6 +197,35 @@ class MotorController:
             self._inter_motor_pause(index)
         print("All motors homed.")
 
+    def set_velocity(self, name: str, max_velocity_deg_s: float, accel_deg_s2: float) -> None:
+        """Explicitly set one motor's velocity profile in software.
+
+        Real hardware: Kinesis exposes this as device.SetVelocityParams(
+        Decimal(accel), Decimal(max_velocity)) on the CageRotator — this is
+        the same trapezoidal profile MoveTo() uses for every point-to-point
+        move, so setting it here (rather than leaving whatever was last
+        stored on the device/Kinesis profile) is what makes every
+        move_motor_angle() call use a known, reproducible speed.
+        """
+
+        if name not in self.devices:
+            raise MotorError(f"{name} is not connected.")
+        print(f"[{name}] Velocity set: max {max_velocity_deg_s:.3f} deg/s, accel {accel_deg_s2:.3f} deg/s^2")
+        if self.dry_run:
+            return
+        self.devices[name].SetVelocityParams(self.Decimal(accel_deg_s2), self.Decimal(max_velocity_deg_s))
+
+    def set_all_velocity(self, max_velocity_deg_s: float, accel_deg_s2: float) -> None:
+        """Apply the same explicit velocity profile to every active motor.
+        Called from 01_main.initialize_motors(), after enable_all() and
+        before home_all(), so homing and every subsequent move already use
+        the configured speed rather than a device default."""
+
+        for index, name in enumerate(self.names):
+            self.set_velocity(name, max_velocity_deg_s, accel_deg_s2)
+            self._inter_motor_pause(index)
+        print("All motors set to the configured rotation velocity.")
+
     def move_to_optical_zero_all(self) -> None:
         """Move every active motor to its config.ZERO_OFFSET motor angle,
         i.e. optical 0 degrees. Called from 01_main.initialize_motors(),
