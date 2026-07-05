@@ -1,26 +1,25 @@
-"""Empirically compare 3x3 Mueller matrix reconstruction error across every
-possible 9-image combination (3 PSG angles x 3 PSA angles, the *same*
-3-angle subset used on both sides) drawn from an existing over-determined
-N-image capture -- e.g. a 36-image, 6x6-angle run -- plus the full N-image
-reconstruction as a baseline. Answers two questions empirically, using data
-you've already captured (no new capture needed):
+"""Standalone tool: for every over-determined 3x3-Mueller-matrix capture found
+under a data root (36 images = 6 PSG angles x 6 PSA angles), compare the
+reconstruction error of the full 36-image (over-determined) fit against every
+possible 9-image (3-angle x 3-angle) subset drawn from the same data, ranked
+against the known theoretical matrix.
 
-  1. Does using more images (the full 36) actually give a lower error
-     against the known theoretical matrix than any 9-image subset?
-  2. Among all 9-image subsets, which specific 3-angle choice does best,
-     and does the system matrix's condition number (computable without
-     knowing theory) predict that ranking?
+Answers, per sample and overall:
+  1. Does using all 36 images actually beat every 9-image subset?
+  2. Which specific 3-angle combo (e.g. (0,60,120) vs (0,30,60)) gives the
+     lowest error, and is that consistent across samples?
 
-Fully self-contained: no imports from control/matrix/own_code/ -- its own
-copy of the rotation-sandwich physics, image loader, and theoretical-matrix
-formulas (kept deliberately in sync with own_code/DISCRETE/3x3's physics,
-verified identical up to floating-point noise).
+This folder is fully self-contained: its own copy of the rotation-sandwich
+physics, image loader, and theoretical-matrix formulas. It does not import
+anything from control/ or angle_subset_comparison/, and never writes outside
+its own Results/ directory -- data under Data/ is only ever read.
 
-To run: edit SAMPLE_DIRECTORY below to point at one existing 3x3 run that
-has a full N x N angle grid (so every 3-angle subset actually has all 9
-images present), then:
+Usage:
+    python analyze_subsets.py
 
-    python compare_subsets.py
+The script scans DATA_ROOT for every run folder, prints the list of runs it
+found, and asks the operator to confirm the list is complete before doing any
+analysis (in case a run folder is missing or DATA_ROOT needs adjusting).
 """
 
 from __future__ import annotations
@@ -37,23 +36,24 @@ _REQUIRED_PACKAGES = {
 
 
 def _ensure_dependencies() -> None:
-    """Install any of this script's required packages that aren't already
-    present, using the same Python interpreter running this script. Falls
-    back to --break-system-packages if a plain install is blocked by an
-    externally-managed environment (PEP 668, e.g. a uv-managed Python)."""
-
     missing = [pip_name for module_name, pip_name in _REQUIRED_PACKAGES.items()
                if importlib.util.find_spec(module_name) is None]
     if not missing:
         return
-
-    print(f"Installing missing dependencies: {', '.join(missing)}")
+    print(f"Installing missing dependencies: {', '.join(missing)}", flush=True)
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
     except subprocess.CalledProcessError:
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", *missing]
         )
+
+    # The user site-packages directory may not have existed when this
+    # interpreter started, so its path-finder cache can be stale even though
+    # site.getusersitepackages() is already on sys.path. Refresh it.
+    import site
+    importlib.invalidate_caches()
+    site.addsitedir(site.getusersitepackages())
 
 
 _ensure_dependencies()
@@ -68,23 +68,28 @@ import numpy as np
 from PIL import Image
 
 # ---------------------------------------------------------------------------
-# EDIT THIS to point at one existing 3x3 run with a full angle grid (e.g.
-# the 6x6=36-image lp30/lp45/lp90/air datasets).
+# EDIT THIS if your captures live somewhere else. The script recursively
+# scans every subfolder of DATA_ROOT for 3x3-mode runs.
 # ---------------------------------------------------------------------------
-DATA_ROOT = r"C:\COMPARE_CASES\control\Data"
-SAMPLE_DIRECTORY = r"C:\COMPARE_CASES\control\Data\03072026\lp\lp30"
+DATA_ROOT = r"C:\COMPARE_CASES\Data"
 
 # How many angles per side to draw into each candidate subset (3 -> 9-image
-# combinations, matching a normal 3x3 minimum acquisition).
+# combinations, matching the minimum acquisition for a 3x3 matrix).
 SUBSET_SIZE = 3
 
+# A run is only usable for this analysis if it has at least this many unique
+# angles per side (need >= SUBSET_SIZE to form any subset, and > SUBSET_SIZE
+# for the comparison to be meaningful against an over-determined baseline).
+MIN_UNIQUE_ANGLES = SUBSET_SIZE + 1
+
 EXTINCTION_RATIO = 0.0
+
+RESULTS_DIR = Path(__file__).resolve().parent / "Results"
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# Physics: the rotation sandwich M(theta) = R(-theta) @ M(0) @ R(theta),
-# same as own_code/DISCRETE/3x3/mueller_forward_model.py.
+# Physics: the rotation sandwich M(theta) = R(-theta) @ M(0) @ R(theta).
 # ---------------------------------------------------------------------------
 
 def mueller_rotator(theta_deg: float) -> np.ndarray:
@@ -119,7 +124,7 @@ def analyzer_vector_3x3(psa_analyzer_deg: float, extinction_ratio: float = 0.0) 
 
 
 # ---------------------------------------------------------------------------
-# Theoretical targets, same formulas as own_code/DISCRETE/3x3/validate_against_theory.py
+# Theoretical targets.
 # ---------------------------------------------------------------------------
 
 def theoretical_matrix(sample_name: str) -> np.ndarray:
@@ -154,19 +159,29 @@ def theoretical_matrix(sample_name: str) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Image loading: same "psg_psa.ext" filename convention as own_code/DISCRETE/3x3.
+# Run discovery + loading.
 # ---------------------------------------------------------------------------
 
 FILENAME_RE = re.compile(r"^(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)$")
 
 
-def load_run(run_dir: str):
-    run_dir = Path(run_dir)
-    config_path = run_dir / "Config" / "experiment_config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    if config["mode"] != "3x3":
-        raise ValueError(f"{run_dir} is mode {config['mode']!r}, not '3x3'.")
+def discover_runs(data_root: str) -> list[Path]:
+    """Recursively find every folder under data_root that is a 3x3-mode run
+    (has Config/experiment_config.json with mode == '3x3')."""
+    root = Path(data_root)
+    runs = []
+    for config_path in root.rglob("Config/experiment_config.json"):
+        run_dir = config_path.parent.parent
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if config.get("mode") == "3x3":
+            runs.append(run_dir)
+    return sorted(runs)
 
+
+def load_run(run_dir: Path):
     image_dir = run_dir / "Images"
     paths = sorted(
         p for p in image_dir.iterdir()
@@ -212,26 +227,27 @@ def reconstruct_subset(psg_angles, psa_angles, images, indices, extinction_ratio
     matrix_raw = m_vec.T.reshape(height, width, 3, 3)
 
     # Average the RAW (unnormalized) matrix across pixels first, then
-    # normalize once -- not the reverse. A handful of pixels can have a raw
-    # m00 near zero (real sensor/reconstruction noise), and normalizing
-    # each pixel individually before averaging lets those few pixels'
-    # division blow-ups dominate the mean completely. Averaging raw values
-    # first is naturally robust to that: a handful of bad pixels contribute
-    # negligibly to a sum over millions, whereas post-normalization they can
-    # produce errors many orders of magnitude too large.
+    # normalize once -- a handful of pixels near-zero in m00 would otherwise
+    # blow up if normalized before averaging.
     matrix_mean_raw = matrix_raw.mean(axis=(0, 1))
     matrix_mean = matrix_mean_raw / matrix_mean_raw[0, 0]
     return matrix_mean, condition_number
 
 
+# ---------------------------------------------------------------------------
+# Full Mueller-matrix dump per subset (text + JSON) -- just the matrix values
+# and their difference from theory, no scalar error/rank/condition tables.
+# ---------------------------------------------------------------------------
+
 def _format_matrix(m: np.ndarray) -> str:
     return "\n".join("    [" + ", ".join(f"{v:+.4f}" for v in row) + "]" for row in m)
 
 
-def _write_matrices(out_dir: Path, sample_name: str, theory: np.ndarray, total_images: int,
-                     full_matrix: np.ndarray, rows: list) -> None:
+def _write_matrices(out_dir: Path, sample_name: str, run_dir: Path, theory: np.ndarray,
+                     total_images: int, full_matrix: np.ndarray, rows: list) -> None:
     lines = []
     lines.append(f"Sample: {sample_name}")
+    lines.append(f"Source: {run_dir}")
     lines.append("")
     lines.append("Theoretical Mueller matrix:")
     lines.append(_format_matrix(theory))
@@ -262,6 +278,7 @@ def _write_matrices(out_dir: Path, sample_name: str, theory: np.ndarray, total_i
 
     payload = {
         "sample_name": sample_name,
+        "source": str(run_dir),
         "theoretical_matrix": theory.tolist(),
         "full_baseline": {
             "total_images": total_images,
@@ -273,20 +290,30 @@ def _write_matrices(out_dir: Path, sample_name: str, theory: np.ndarray, total_i
     (out_dir / "matrices.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def main() -> None:
-    psg_angles, psa_angles, images, sample_name = load_run(SAMPLE_DIRECTORY)
-    theory = theoretical_matrix(sample_name)
+# ---------------------------------------------------------------------------
+# Per-sample analysis.
+# ---------------------------------------------------------------------------
 
+def analyze_run(run_dir: Path) -> dict | None:
+    psg_angles, psa_angles, images, sample_name = load_run(run_dir)
     unique_angles = sorted(set(psg_angles.tolist()) & set(psa_angles.tolist()))
     total_images = len(psg_angles)
-    print(f"Sample: {sample_name}")
-    print(f"Unique angles found: {unique_angles} ({total_images} images total)")
+
+    if len(unique_angles) < MIN_UNIQUE_ANGLES:
+        print(f"  Skipping {sample_name} ({run_dir}): only {len(unique_angles)} "
+              f"unique angle(s) present, need >= {MIN_UNIQUE_ANGLES} for this analysis.")
+        return None
+
+    try:
+        theory = theoretical_matrix(sample_name)
+    except ValueError as exc:
+        print(f"  Skipping {sample_name} ({run_dir}): {exc}")
+        return None
 
     # Mirror the run's date/sample path from under DATA_ROOT (e.g.
     # "03072026/lp/lp30") so results from the same sample name captured on
     # different dates don't collide or overwrite each other.
-    out_dir = (Path(__file__).resolve().parent / "Results"
-               / Path(SAMPLE_DIRECTORY).relative_to(Path(DATA_ROOT)))
+    out_dir = RESULTS_DIR / run_dir.relative_to(Path(DATA_ROOT))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     all_indices = np.arange(total_images)
@@ -300,7 +327,6 @@ def main() -> None:
         indices = [i for i in range(total_images)
                    if psg_angles[i] in combo and psa_angles[i] in combo]
         if len(indices) != SUBSET_SIZE ** 2:
-            print(f"  Skipping {combo}: only {len(indices)}/{SUBSET_SIZE ** 2} images present")
             continue
         matrix_mean, _ = reconstruct_subset(
             psg_angles, psa_angles, images, indices, EXTINCTION_RATIO
@@ -309,9 +335,12 @@ def main() -> None:
         rows.append((combo, deviation, matrix_mean))
 
     rows.sort(key=lambda r: r[1])
+
+    print(f"\n=== {sample_name} ({run_dir}) ===")
+    print(f"Unique angles: {unique_angles} ({total_images} images total)")
     print(f"Lowest-deviation subset: {rows[0][0]}" if rows else "No valid subsets found")
 
-    _write_matrices(out_dir, sample_name, theory, total_images, full_matrix, rows)
+    _write_matrices(out_dir, sample_name, run_dir, theory, total_images, full_matrix, rows)
 
     # One bar chart: every angle-subset combination plus the full-angle
     # capture, sorted so the lowest bar is the combination that deviates
@@ -336,7 +365,57 @@ def main() -> None:
     fig.savefig(out_dir / "deviation_chart.png", dpi=200)
     plt.close(fig)
 
-    print(f"\nSaved outputs to {out_dir}")
+    return {
+        "sample_name": sample_name,
+        "run_dir": str(run_dir),
+        "total_images": total_images,
+        "full_deviation": full_deviation,
+        "full_matrix": full_matrix,
+        "theory": theory,
+        "rows": rows,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main: discover, confirm with operator, analyze, summarize.
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    print(f"Scanning for 3x3-mode runs under: {DATA_ROOT}\n")
+    runs = discover_runs(DATA_ROOT)
+
+    if not runs:
+        print("No 3x3-mode runs found. Check DATA_ROOT at the top of this script.")
+        return
+
+    print(f"Found {len(runs)} run folder(s):")
+    for run_dir in runs:
+        print(f"  - {run_dir}")
+
+    answer = input(
+        "\nIs this the complete, correct list of runs to analyze? "
+        "[y/N, or edit DATA_ROOT and rerun]: "
+    ).strip().lower()
+    if answer not in ("y", "yes"):
+        print("Aborting. Adjust DATA_ROOT at the top of analyze_subsets.py and rerun.")
+        return
+
+    results = []
+    for run_dir in runs:
+        try:
+            result = analyze_run(run_dir)
+        except Exception as exc:
+            print(f"  Error analyzing {run_dir}: {exc}")
+            continue
+        if result is not None:
+            results.append(result)
+
+    if not results:
+        print("\nNo runs were suitable for subset analysis (need an over-determined "
+              f"grid with >= {MIN_UNIQUE_ANGLES} unique angles per side).")
+        return
+
+    print(f"\nAll results saved under: {RESULTS_DIR}")
 
 
 if __name__ == "__main__":
