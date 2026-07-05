@@ -1,18 +1,27 @@
-"""Phase 2: validate the 3x3 solver against samples with a known theoretical
-Mueller matrix -- air (should reconstruct to identity) and a linear
-polarizer at a known angle (should reconstruct to the ideal LP formula) --
-using the exact same reconstruction as main.py.
+"""Phase 2: validate the continuous-rotation 4x4 solver against samples with
+a known theoretical Mueller matrix -- air (should reconstruct to identity),
+a linear polarizer at a known angle, and a QWP at a known angle -- using the
+exact same reconstruction as main.py.
 
-This is the calibration baseline: if air's error and the LP samples' error
-look similar (same pattern, similar magnitude), the discrepancy is a
-systematic PSG/PSA modeling problem (angle offset, extinction ratio), not
-something sample-specific -- see NAMING.md and the own_code READMEs for the
-fuller discussion of what to do next in that case.
+Deliberate duplicate in spirit of ../../DISCRETE/4x4/validate_against_theory.py
+(and, one level further back, ../../DISCRETE/3x3/validate_against_theory.py):
+the theoretical matrices here are NOT hand-derived, they call this folder's
+own mueller_forward_model.py functions (mueller_linear_polarizer()/
+mueller_retarder()) directly -- the exact same physics the reconstruction
+itself is built from, so any mismatch you see reflects a real calibration
+issue (angle offset, extinction ratio, retardance), not a bug in a
+separately hand-derived "theory" formula.
 
-To run: edit SAMPLE_DIRECTORIES below to list every dataset you want
-checked (folder name must be "air" or "lp<angle>" so the theoretical
-target can be inferred -- extend theoretical_matrix() for other known
-references), then:
+This is the calibration baseline: if air's error and the LP/QWP samples'
+error look similar (same pattern, similar magnitude), the discrepancy is a
+systematic PSG/PSA modeling problem, not something sample-specific -- see
+NAMING.md and the own_code READMEs for the fuller discussion of what to do
+next in that case.
+
+To run: edit SAMPLE_DIRECTORIES below to list every continuous run you want
+checked (folder name must be "air", "lp<angle>", or "qwp<angle>" so the
+theoretical target can be inferred -- extend theoretical_matrix() for other
+known references), then:
 
     python validate_against_theory.py
 
@@ -64,20 +73,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from image_loader import load_run
+from mueller_forward_model import mueller_linear_polarizer, mueller_retarder
 from solve_mueller import reconstruct
 
 # ---------------------------------------------------------------------------
-# EDIT THIS: every dataset to check against its known theoretical matrix.
-# Folder name drives theoretical_matrix() below -- "air" or "lp<angle>".
+# EDIT THIS: every continuous run to check against its known theoretical
+# matrix. Folder name drives theoretical_matrix() below -- "air",
+# "lp<angle>", or "qwp<angle>". Each folder must contain Images/,
+# Logs/experiment_log.csv, and Config/experiment_config.json (the output of
+# continous_rotation/01_main.py).
 # ---------------------------------------------------------------------------
 SAMPLE_DIRECTORIES = [
-    r"G:\control\Data\02072026\air",
-    r"G:\control\Data\03072026\lp\lp30",
-    r"G:\control\Data\03072026\lp\lp45",
-    r"G:\control\Data\03072026\lp\lp90",
+    r"G:\control\Data\continuous\air",
+    r"G:\control\Data\continuous\lp30",
+    r"G:\control\Data\continuous\lp45",
+    r"G:\control\Data\continuous\qwp90",
 ]
 
 EXTINCTION_RATIO = 0.0
+RETARDANCE_DEG = 90.0
 # ---------------------------------------------------------------------------
 
 
@@ -113,37 +127,27 @@ def confirm_sample_directories(paths: list) -> None:
 
 
 def theoretical_matrix(sample_name: str) -> np.ndarray:
-    """Infer the ideal 3x3 Mueller matrix from the sample's folder name --
-    "air" -> identity, "lp<angle>" -> an ideal linear polarizer, "qwp<angle>"
-    -> the 3x3 sub-block an ideal quarter-wave plate reduces to under a
-    linear-states-only (3x3) measurement -- ignores whatever the QWP does
-    to circular polarization, since 3x3 mode can't see that regardless of
-    how good the reconstruction is. Add a case here for any other known
-    reference sample."""
+    """Infer the ideal 4x4 Mueller matrix from the sample's folder name --
+    "air" -> identity, "lp<angle>" -> mueller_linear_polarizer() at that
+    angle (ideal, extinction 0), "qwp<angle>" -> mueller_retarder() at that
+    angle (ideal, retardance 90). Calls this folder's own
+    mueller_forward_model.py functions rather than a separately hand-derived
+    formula -- see the module docstring for why that matters for 4x4
+    specifically. Add a case here for any other known reference sample."""
 
     name = sample_name.lower()
     if name == "air":
-        return np.eye(3)
+        return np.eye(4)
 
     match = re.match(r"^lp(-?\d+(?:\.\d+)?)$", name)
     if match:
-        theta = np.deg2rad(float(match.group(1)))
-        c, s = np.cos(2 * theta), np.sin(2 * theta)
-        return np.array([
-            [1.0, c, s],
-            [c, c * c, c * s],
-            [s, c * s, s * s],
-        ])
+        theta = float(match.group(1))
+        return mueller_linear_polarizer(theta, extinction_ratio=0.0)
 
     match = re.match(r"^qwp(-?\d+(?:\.\d+)?)$", name)
     if match:
-        theta = np.deg2rad(float(match.group(1)))
-        c, s = np.cos(2 * theta), np.sin(2 * theta)
-        return np.array([
-            [1.0, 0.0, 0.0],
-            [0.0, c * c, c * s],
-            [0.0, c * s, s * s],
-        ])
+        theta = float(match.group(1))
+        return mueller_retarder(theta, retardance_deg=90.0)
 
     raise ValueError(
         f"No known theoretical matrix for sample {sample_name!r} -- "
@@ -151,11 +155,28 @@ def theoretical_matrix(sample_name: str) -> np.ndarray:
     )
 
 
+_DATE_DIR_RE = re.compile(r"^\d{8}$")
+
+
+def _date_relative_path(path: Path) -> Path:
+    """Return the portion of path from its date folder (an 8-digit
+    ddmmyyyy folder, e.g. "03072026") onward, so results saved under this
+    path preserve the same date/sample structure as control/Data -- a
+    sample name captured on two different dates won't collide or overwrite
+    each other's results. Falls back to just the path's own name if no date
+    folder is found (e.g. a run directory outside the dated Data layout)."""
+    parts = path.parts
+    for i, part in enumerate(parts):
+        if _DATE_DIR_RE.match(part):
+            return Path(*parts[i:])
+    return Path(path.name)
+
+
 def main() -> None:
     confirm_sample_directories(SAMPLE_DIRECTORIES)
 
-    out_dir = Path(__file__).resolve().parent / "Results" / "validation_against_theory"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(__file__).resolve().parent / "Results" / "validation_against_theory"
+    base_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
     for sample_dir in SAMPLE_DIRECTORIES:
@@ -164,42 +185,45 @@ def main() -> None:
         theory = theoretical_matrix(sample_name)
 
         run = load_run(sample_dir)
-        result = reconstruct(run, extinction_ratio=EXTINCTION_RATIO)
+        result = reconstruct(run, extinction_ratio=EXTINCTION_RATIO, retardance_deg=RETARDANCE_DEG)
 
         mean_matrix_error = float(np.linalg.norm(result.matrix_mean - theory))
         diff = result.matrix - theory[None, None, :, :]
         per_pixel_error = np.sqrt((diff ** 2).sum(axis=(2, 3)))
 
-        np.save(out_dir / f"{sample_name}_theory.npy", theory)
-        np.save(out_dir / f"{sample_name}_experimental_mean.npy", result.matrix_mean)
-        np.save(out_dir / f"{sample_name}_per_pixel_frobenius_error.npy", per_pixel_error)
+        out_dir = base_dir / _date_relative_path(sample_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4.2))
+        np.save(out_dir / "theory.npy", theory)
+        np.save(out_dir / "experimental_mean.npy", result.matrix_mean)
+        np.save(out_dir / "per_pixel_frobenius_error.npy", per_pixel_error)
+
+        fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
         panels = [theory, result.matrix_mean, result.matrix_mean - theory]
         titles = ["Theory", "Experiment (mean)", "Experiment - Theory"]
         im = None
         for ax, mat, title in zip(axes, panels, titles):
             im = ax.imshow(mat, cmap="RdBu_r", vmin=-1, vmax=1)
             ax.set_title(title, fontsize=10)
-            ax.set_xticks(range(3))
-            ax.set_yticks(range(3))
+            ax.set_xticks(range(4))
+            ax.set_yticks(range(4))
         fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02)
         fig.suptitle(f"{sample_name}: theory vs. experiment (Frobenius error {mean_matrix_error:.4f})")
-        fig.savefig(out_dir / f"{sample_name}_comparison.png", dpi=200)
+        fig.savefig(out_dir / "comparison.png", dpi=200)
         plt.close(fig)
 
         fig2, ax2 = plt.subplots(figsize=(5, 4))
         im2 = ax2.imshow(per_pixel_error, cmap="inferno")
         ax2.set_title(f"{sample_name}: per-pixel Frobenius error vs. theory")
         fig2.colorbar(im2, ax=ax2)
-        fig2.savefig(out_dir / f"{sample_name}_error_map.png", dpi=200)
+        fig2.savefig(out_dir / "error_map.png", dpi=200)
         plt.close(fig2)
 
         rows.append((sample_name, mean_matrix_error, float(per_pixel_error.mean())))
         print(f"{sample_name}: mean-matrix Frobenius error = {mean_matrix_error:.4f}, "
               f"mean per-pixel Frobenius error = {per_pixel_error.mean():.4f}")
 
-    with open(out_dir / "summary.txt", "w", encoding="utf-8") as fh:
+    with open(base_dir / "summary.txt", "w", encoding="utf-8") as fh:
         fh.write("sample      | mean-matrix Frobenius error | mean per-pixel Frobenius error\n")
         for name, mean_err, pix_err in rows:
             fh.write(f"{name:11s} | {mean_err:27.4f} | {pix_err:.4f}\n")
@@ -220,7 +244,7 @@ def main() -> None:
         print("No 'air' baseline found among SAMPLE_DIRECTORIES -- add one to "
               "establish whether error is systematic or sample-specific.")
 
-    print(f"\nSaved validation outputs to {out_dir}")
+    print(f"\nSaved validation outputs to {base_dir}")
 
 
 if __name__ == "__main__":

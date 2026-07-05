@@ -154,11 +154,28 @@ def theoretical_matrix(sample_name: str) -> np.ndarray:
     )
 
 
+_DATE_DIR_RE = re.compile(r"^\d{8}$")
+
+
+def _date_relative_path(path: Path) -> Path:
+    """Return the portion of path from its date folder (an 8-digit
+    ddmmyyyy folder, e.g. "03072026") onward, so results saved under this
+    path preserve the same date/sample structure as control/Data -- a
+    sample name captured on two different dates won't collide or overwrite
+    each other's results. Falls back to just the path's own name if no date
+    folder is found (e.g. a run directory outside the dated Data layout)."""
+    parts = path.parts
+    for i, part in enumerate(parts):
+        if _DATE_DIR_RE.match(part):
+            return Path(*parts[i:])
+    return Path(path.name)
+
+
 def main() -> None:
     confirm_sample_directories(SAMPLE_DIRECTORIES)
 
-    out_dir = Path(__file__).resolve().parent / "Results" / "validation_against_theory"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(__file__).resolve().parent / "Results" / "validation_against_theory"
+    base_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
     for sample_dir in SAMPLE_DIRECTORIES:
@@ -173,9 +190,12 @@ def main() -> None:
         diff = result.matrix - theory[None, None, :, :]
         per_pixel_error = np.sqrt((diff ** 2).sum(axis=(2, 3)))
 
-        np.save(out_dir / f"{sample_name}_theory.npy", theory)
-        np.save(out_dir / f"{sample_name}_experimental_mean.npy", result.matrix_mean)
-        np.save(out_dir / f"{sample_name}_per_pixel_frobenius_error.npy", per_pixel_error)
+        out_dir = base_dir / _date_relative_path(sample_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        np.save(out_dir / "theory.npy", theory)
+        np.save(out_dir / "experimental_mean.npy", result.matrix_mean)
+        np.save(out_dir / "per_pixel_frobenius_error.npy", per_pixel_error)
 
         fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
         panels = [theory, result.matrix_mean, result.matrix_mean - theory]
@@ -188,21 +208,21 @@ def main() -> None:
             ax.set_yticks(range(4))
         fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02)
         fig.suptitle(f"{sample_name}: theory vs. experiment (Frobenius error {mean_matrix_error:.4f})")
-        fig.savefig(out_dir / f"{sample_name}_comparison.png", dpi=200)
+        fig.savefig(out_dir / "comparison.png", dpi=200)
         plt.close(fig)
 
         fig2, ax2 = plt.subplots(figsize=(5, 4))
         im2 = ax2.imshow(per_pixel_error, cmap="inferno")
         ax2.set_title(f"{sample_name}: per-pixel Frobenius error vs. theory")
         fig2.colorbar(im2, ax=ax2)
-        fig2.savefig(out_dir / f"{sample_name}_error_map.png", dpi=200)
+        fig2.savefig(out_dir / "error_map.png", dpi=200)
         plt.close(fig2)
 
         rows.append((sample_name, mean_matrix_error, float(per_pixel_error.mean())))
         print(f"{sample_name}: mean-matrix Frobenius error = {mean_matrix_error:.4f}, "
               f"mean per-pixel Frobenius error = {per_pixel_error.mean():.4f}")
 
-    with open(out_dir / "summary.txt", "w", encoding="utf-8") as fh:
+    with open(base_dir / "summary.txt", "w", encoding="utf-8") as fh:
         fh.write("sample      | mean-matrix Frobenius error | mean per-pixel Frobenius error\n")
         for name, mean_err, pix_err in rows:
             fh.write(f"{name:11s} | {mean_err:27.4f} | {pix_err:.4f}\n")
@@ -223,7 +243,7 @@ def main() -> None:
         print("No 'air' baseline found among SAMPLE_DIRECTORIES -- add one to "
               "establish whether error is systematic or sample-specific.")
 
-    print(f"\nSaved validation outputs to {out_dir}")
+    print(f"\nSaved validation outputs to {base_dir}")
 
 
 if __name__ == "__main__":

@@ -1,25 +1,27 @@
-"""Single entry point for the 3x3 Mueller matrix pipeline: load a run's
-images, reconstruct its 3x3 Mueller matrix, and save every output
-(per-element maps, an overview plot, the mean matrix, and fit diagnostics)
-to disk.
+"""Single entry point for the 4x4 CONTINUOUS-rotation Mueller matrix
+pipeline: load a run's frames, reconstruct its 4x4 Mueller matrix, and save
+every output (per-element maps, an overview plot, the mean matrix, and fit
+diagnostics) to disk.
 
 This is the only file you need to run. It imports image_loader.py and
 solve_mueller.py from this same folder -- see README.md (in this folder)
-for what each one does and the physics behind them.
+for what each one does and how this differs from the discrete pipeline
+(../../DISCRETE/4x4/).
 
-To run: edit RUN_DIRECTORY below to point at whatever 3x3 run you want to
-process (it does not need to live under this project at all), then just run
-this file:
+To run: edit RUN_DIRECTORY below to point at whatever continuous 4x4 run
+you want to process (it does not need to live under this project at all),
+then just run this file:
 
     python main.py
 
-You will be prompted in the terminal for the polarizer extinction ratio
-(press Enter to accept the suggested default -- the ideal value, 0, the
-first time; whatever you last used after that, remembered in
-.last_calibration.json next to this file). Pass --extinction on the
-command line instead to skip the prompt for a one-off/scripted run:
+You will be prompted in the terminal for the polarizer extinction ratio and
+the QWP retardance (press Enter on either to accept the suggested default
+-- the ideal values, 0 and 90, the first time; whatever you last used
+after that, remembered in .last_calibration.json next to this file). Pass
+--extinction/--retardance on the command line instead to skip the prompts
+for a one-off/scripted run:
 
-    python main.py <run_directory> [--out OUTPUT_DIR] [--extinction E]
+    python main.py <run_directory> [--out OUTPUT_DIR] [--extinction E] [--retardance R]
 
 CLI arguments also override RUN_DIRECTORY/OUTPUT_DIRECTORY without editing
 the file.
@@ -62,30 +64,32 @@ _ensure_dependencies()
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from image_loader import load_run
-from solve_mueller import MuellerResult3x3, reconstruct
+from solve_mueller import MuellerResult4x4, reconstruct
 
 # ---------------------------------------------------------------------------
-# EDIT THIS to point at the 3x3 run you want to process. Any folder that
-# contains Images/ and Config/experiment_config.json (mode "3x3") works --
-# it does not need to be inside this project or on the same drive.
+# EDIT THIS to point at the continuous 4x4 run you want to process. Any
+# folder produced by Measuremt_ script/continous_rotation/01_main.py works
+# (Images/, Logs/experiment_log.csv, Config/experiment_config.json) -- it
+# does not need to be inside this project or on the same drive.
 # ---------------------------------------------------------------------------
-RUN_DIRECTORY = r"G:\control\Data\03072026\lp\lp90"
+RUN_DIRECTORY = r"G:\control\Data\continuous\sample1"
 
 # Where results are saved. None = a Results/<run folder name> subfolder next
 # to this script, independent of wherever RUN_DIRECTORY actually is.
 OUTPUT_DIRECTORY = None
 # ---------------------------------------------------------------------------
 
-# Remembers the last extinction ratio you actually used (typed at the
-# prompt, or passed via --extinction), so the next run's prompt suggests
-# that instead of resetting to the ideal default every time. Local to this
-# machine -- not committed to git (see ../../../.gitignore).
+# Remembers the last extinction ratio/retardance you actually used (typed
+# at the prompt, or passed via --extinction/--retardance), so the next
+# run's prompt suggests that instead of resetting to the ideal default
+# every time. Local to this machine -- not committed to git.
 _CALIBRATION_STATE_PATH = Path(__file__).resolve().parent / ".last_calibration.json"
 
 
@@ -100,16 +104,34 @@ def _save_last_calibration(values: dict) -> None:
     _CALIBRATION_STATE_PATH.write_text(json.dumps(values, indent=2), encoding="utf-8")
 
 
+_DATE_DIR_RE = re.compile(r"^\d{8}$")
+
+
+def _date_relative_path(path: Path) -> Path:
+    """Return the portion of path from its date folder (an 8-digit
+    ddmmyyyy folder, e.g. "03072026") onward, so results saved under this
+    path preserve the same date/sample structure as control/Data -- a
+    sample name captured on two different dates won't collide or overwrite
+    each other's results. Falls back to just the path's own name if no date
+    folder is found (e.g. a run directory outside the dated Data layout)."""
+    parts = path.parts
+    for i, part in enumerate(parts):
+        if _DATE_DIR_RE.match(part):
+            return Path(*parts[i:])
+    return Path(path.name)
+
+
 def default_output_directory(run_dir: Path) -> Path:
-    return Path(__file__).resolve().parent / "Results" / run_dir.name
+    return Path(__file__).resolve().parent / "Results" / _date_relative_path(run_dir)
 
 
 def ask_float(prompt: str, default: float) -> float:
     """Ask for a numeric value, showing ``default`` in brackets; press Enter
     (blank input) to accept it as-is. Loops until a parseable number is
-    entered. Used for extinction_ratio, since that's a real, per-optic
-    calibration number the operator should confirm every run rather than
-    silently inheriting whatever default happens to be in this file."""
+    entered. Used for extinction_ratio/retardance_deg, since these are real,
+    per-optic calibration numbers the operator should confirm every run
+    rather than silently inheriting whatever default happens to be in this
+    file."""
 
     while True:
         text = input(f"{prompt} [{default:g}]: ").strip()
@@ -121,7 +143,7 @@ def ask_float(prompt: str, default: float) -> float:
             print("Enter a numeric value.")
 
 
-def save_outputs(result: MuellerResult3x3, out_dir: Path) -> None:
+def save_outputs(result: MuellerResult4x4, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(out_dir / "mueller_matrix_normalized.npy", result.matrix)
@@ -130,17 +152,17 @@ def save_outputs(result: MuellerResult3x3, out_dir: Path) -> None:
 
     np.set_printoptions(precision=4, suppress=True)
     with open(out_dir / "summary.txt", "w", encoding="utf-8") as fh:
-        fh.write("Mode: 3x3\n")
+        fh.write("Mode: 4x4 continuous\n")
         fh.write(f"System matrix condition number: {result.condition_number:.3f}\n")
         fh.write(f"Mean fit residual (RMS): {result.residual_rms.mean():.6f}\n")
         fh.write("Mean Mueller matrix (spatial average, normalized by m00):\n")
         fh.write(np.array2string(result.matrix_mean))
         fh.write("\n")
 
-    fig, axes = plt.subplots(3, 3, figsize=(9, 9))
+    fig, axes = plt.subplots(4, 4, figsize=(12, 12))
     im = None
-    for i in range(3):
-        for j in range(3):
+    for i in range(4):
+        for j in range(4):
             ax = axes[i, j]
             im = ax.imshow(result.matrix[:, :, i, j], cmap="RdBu_r", vmin=-1, vmax=1)
             ax.set_xticks([])
@@ -149,7 +171,7 @@ def save_outputs(result: MuellerResult3x3, out_dir: Path) -> None:
     fig.subplots_adjust(right=0.88)
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax)
-    fig.suptitle("Recovered 3x3 Mueller matrix (per pixel, normalized)")
+    fig.suptitle("Recovered 4x4 Mueller matrix (per pixel, normalized) -- continuous rotation")
     fig.savefig(out_dir / "mueller_matrix_overview.png", dpi=200)
     plt.close(fig)
 
@@ -164,13 +186,17 @@ def save_outputs(result: MuellerResult3x3, out_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_directory", nargs="?", default=None,
-                         help="Folder with Images/ and Config/experiment_config.json "
-                              "(default: RUN_DIRECTORY set at the top of this file)")
+                         help="Folder with Images/, Logs/experiment_log.csv, and "
+                              "Config/experiment_config.json (default: RUN_DIRECTORY "
+                              "set at the top of this file)")
     parser.add_argument("--out", default=None,
                          help="Output folder (default: OUTPUT_DIRECTORY set at the top of this file)")
     parser.add_argument("--extinction", type=float, default=None,
                          help="Polarizer extinction ratio Imin/Imax; omit to be "
                               "prompted for it interactively (suggested default: ideal, 0)")
+    parser.add_argument("--retardance", type=float, default=None,
+                         help="QWP retardance in degrees; omit to be prompted for it "
+                              "interactively (suggested default: ideal, 90)")
     args = parser.parse_args()
 
     run_dir = Path(args.run_directory or RUN_DIRECTORY)
@@ -179,14 +205,18 @@ def main() -> None:
     extinction_ratio = args.extinction if args.extinction is not None else ask_float(
         "Polarizer extinction ratio Imin/Imax", last_calibration.get("extinction_ratio", 0.0)
     )
-    _save_last_calibration({"extinction_ratio": extinction_ratio})
+    retardance_deg = args.retardance if args.retardance is not None else ask_float(
+        "QWP retardance in degrees", last_calibration.get("retardance_deg", 90.0)
+    )
+    _save_last_calibration({"extinction_ratio": extinction_ratio, "retardance_deg": retardance_deg})
 
     run = load_run(run_dir)
-    result = reconstruct(run, extinction_ratio=extinction_ratio)
+    result = reconstruct(run, extinction_ratio=extinction_ratio, retardance_deg=retardance_deg)
     save_outputs(result, out_dir)
 
     np.set_printoptions(precision=4, suppress=True)
-    print(f"Mode: 3x3, images used: {len(run.files)}")
+    print(f"Mode: 4x4 continuous, frames used: {len(run.files)}")
+    print(f"Fixed angles: {run.fixed_angles}")
     print(f"System matrix condition number: {result.condition_number:.3f}")
     print(f"Mean fit residual (RMS): {result.residual_rms.mean():.6f}")
     print("Mean Mueller matrix (normalized by m00):")

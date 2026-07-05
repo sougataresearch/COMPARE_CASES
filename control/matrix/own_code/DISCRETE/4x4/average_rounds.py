@@ -83,6 +83,23 @@ def _default_sample_name(round_dirs: list) -> str:
     return re.sub(r"_round\d+$", "", first, flags=re.IGNORECASE) or first
 
 
+_DATE_DIR_RE = re.compile(r"^\d{8}$")
+
+
+def _date_relative_parent(path: Path) -> Path:
+    """Return the portion of path's PARENT from its date folder (an 8-digit
+    ddmmyyyy folder, e.g. "03072026") onward, so aggregate results saved
+    under this path preserve the same date/sample structure as
+    control/Data -- the same sample name captured on two different dates
+    won't collide or overwrite each other's results. Falls back to "." if
+    no date folder is found (e.g. rounds outside the dated Data layout)."""
+    parts = path.parent.parts
+    for i, part in enumerate(parts):
+        if _DATE_DIR_RE.match(part):
+            return Path(*parts[i:])
+    return Path(".")
+
+
 def main() -> None:
     round_dirs = [Path(p) for p in ROUND_DIRECTORIES]
     sample_name = SAMPLE_NAME or _default_sample_name(ROUND_DIRECTORIES)
@@ -103,7 +120,8 @@ def main() -> None:
     mean_matrix = stacked.mean(axis=0)
     std_matrix = stacked.std(axis=0, ddof=1) if len(round_dirs) > 1 else np.zeros_like(mean_matrix)
 
-    out_dir = Path(__file__).resolve().parent / "Results" / f"{sample_name}_multi_round"
+    out_dir = (Path(__file__).resolve().parent / "Results"
+               / _date_relative_parent(round_dirs[0]) / f"{sample_name}_multi_round")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(out_dir / "per_round_matrices.npy", stacked)

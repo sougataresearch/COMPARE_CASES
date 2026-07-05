@@ -1,16 +1,15 @@
-"""Single entry point for the 4x4 CONTINUOUS-rotation Mueller matrix
-pipeline: load a run's frames, reconstruct its 4x4 Mueller matrix, and save
-every output (per-element maps, an overview plot, the mean matrix, and fit
-diagnostics) to disk.
+"""Single entry point for the 4x4 Mueller matrix pipeline: load a run's
+images, reconstruct its 4x4 Mueller matrix, and save every output
+(per-element maps, an overview plot, the mean matrix, and fit diagnostics)
+to disk.
 
 This is the only file you need to run. It imports image_loader.py and
 solve_mueller.py from this same folder -- see README.md (in this folder)
-for what each one does and how this differs from the discrete pipeline
-(../../DISCRETE/4x4/).
+for what each one does and the physics behind them.
 
-To run: edit RUN_DIRECTORY below to point at whatever continuous 4x4 run
-you want to process (it does not need to live under this project at all),
-then just run this file:
+To run: edit RUN_DIRECTORY below to point at whatever 4x4 run you want to
+process (it does not need to live under this project at all), then just run
+this file:
 
     python main.py
 
@@ -64,6 +63,7 @@ _ensure_dependencies()
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -73,12 +73,12 @@ from image_loader import load_run
 from solve_mueller import MuellerResult4x4, reconstruct
 
 # ---------------------------------------------------------------------------
-# EDIT THIS to point at the continuous 4x4 run you want to process. Any
-# folder produced by Measuremt_ script/continous_rotation/01_main.py works
-# (Images/, Logs/experiment_log.csv, Config/experiment_config.json) -- it
-# does not need to be inside this project or on the same drive.
+# EDIT THIS to point at the 4x4 run you want to process. Any folder that
+# contains Images/ and Config/experiment_config.json (mode "4x4", with
+# fixed_angles for PSG_Polarizer/PSA_Analyzer) works -- it does not need to
+# be inside this project or on the same drive.
 # ---------------------------------------------------------------------------
-RUN_DIRECTORY = r"G:\control\Data\continuous\sample1"
+RUN_DIRECTORY = r"G:\control\Data\03072026\qwp\qwp90"
 
 # Where results are saved. None = a Results/<run folder name> subfolder next
 # to this script, independent of wherever RUN_DIRECTORY actually is.
@@ -103,8 +103,25 @@ def _save_last_calibration(values: dict) -> None:
     _CALIBRATION_STATE_PATH.write_text(json.dumps(values, indent=2), encoding="utf-8")
 
 
+_DATE_DIR_RE = re.compile(r"^\d{8}$")
+
+
+def _date_relative_path(path: Path) -> Path:
+    """Return the portion of path from its date folder (an 8-digit
+    ddmmyyyy folder, e.g. "03072026") onward, so results saved under this
+    path preserve the same date/sample structure as control/Data -- a
+    sample name captured on two different dates won't collide or overwrite
+    each other's results. Falls back to just the path's own name if no date
+    folder is found (e.g. a run directory outside the dated Data layout)."""
+    parts = path.parts
+    for i, part in enumerate(parts):
+        if _DATE_DIR_RE.match(part):
+            return Path(*parts[i:])
+    return Path(path.name)
+
+
 def default_output_directory(run_dir: Path) -> Path:
-    return Path(__file__).resolve().parent / "Results" / run_dir.name
+    return Path(__file__).resolve().parent / "Results" / _date_relative_path(run_dir)
 
 
 def ask_float(prompt: str, default: float) -> float:
@@ -134,7 +151,7 @@ def save_outputs(result: MuellerResult4x4, out_dir: Path) -> None:
 
     np.set_printoptions(precision=4, suppress=True)
     with open(out_dir / "summary.txt", "w", encoding="utf-8") as fh:
-        fh.write("Mode: 4x4 continuous\n")
+        fh.write("Mode: 4x4\n")
         fh.write(f"System matrix condition number: {result.condition_number:.3f}\n")
         fh.write(f"Mean fit residual (RMS): {result.residual_rms.mean():.6f}\n")
         fh.write("Mean Mueller matrix (spatial average, normalized by m00):\n")
@@ -153,7 +170,7 @@ def save_outputs(result: MuellerResult4x4, out_dir: Path) -> None:
     fig.subplots_adjust(right=0.88)
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax)
-    fig.suptitle("Recovered 4x4 Mueller matrix (per pixel, normalized) -- continuous rotation")
+    fig.suptitle("Recovered 4x4 Mueller matrix (per pixel, normalized)")
     fig.savefig(out_dir / "mueller_matrix_overview.png", dpi=200)
     plt.close(fig)
 
@@ -168,9 +185,8 @@ def save_outputs(result: MuellerResult4x4, out_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_directory", nargs="?", default=None,
-                         help="Folder with Images/, Logs/experiment_log.csv, and "
-                              "Config/experiment_config.json (default: RUN_DIRECTORY "
-                              "set at the top of this file)")
+                         help="Folder with Images/ and Config/experiment_config.json "
+                              "(default: RUN_DIRECTORY set at the top of this file)")
     parser.add_argument("--out", default=None,
                          help="Output folder (default: OUTPUT_DIRECTORY set at the top of this file)")
     parser.add_argument("--extinction", type=float, default=None,
@@ -197,7 +213,7 @@ def main() -> None:
     save_outputs(result, out_dir)
 
     np.set_printoptions(precision=4, suppress=True)
-    print(f"Mode: 4x4 continuous, frames used: {len(run.files)}")
+    print(f"Mode: 4x4, images used: {len(run.files)}")
     print(f"Fixed angles: {run.fixed_angles}")
     print(f"System matrix condition number: {result.condition_number:.3f}")
     print(f"Mean fit residual (RMS): {result.residual_rms.mean():.6f}")

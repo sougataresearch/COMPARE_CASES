@@ -62,7 +62,15 @@ def reconstruct(run: RunImages3x3, extinction_ratio: float = 0.0) -> MuellerResu
     m00 = matrix_raw[:, :, 0, 0]
     m00_safe = np.where(m00 == 0, 1e-12, m00)
     matrix = matrix_raw / m00_safe[:, :, None, None]
-    matrix_mean = matrix.mean(axis=(0, 1))
+
+    # matrix_mean is the average RAW matrix, normalized once -- not the
+    # average of the per-pixel normalized "matrix" above. A handful of
+    # pixels can have a raw m00 near zero (real sensor/reconstruction
+    # noise); normalizing each pixel individually before averaging lets
+    # those few pixels' division blow-ups dominate the mean by many orders
+    # of magnitude. Averaging raw values first is naturally robust to that.
+    matrix_mean_raw = matrix_raw.mean(axis=(0, 1))
+    matrix_mean = matrix_mean_raw / matrix_mean_raw[0, 0]
 
     return MuellerResult3x3(matrix, matrix_raw, matrix_mean, condition_number, residual_rms)
 
