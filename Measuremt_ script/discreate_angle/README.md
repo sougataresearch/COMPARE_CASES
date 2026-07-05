@@ -163,6 +163,9 @@ MOTOR_SN = {
     "PSG_QWP": "...",
     "PSA_QWP": "...",
     "PSA_Analyzer": "...",
+    # Only fill this in if you have a motorized SAMPLE stage (see "Motorized
+    # SAMPLE stage" below). Leave "" if the sample is placed by hand.
+    "SAMPLE": "",
 }
 ```
 
@@ -174,6 +177,7 @@ ZERO_OFFSET = {
     "PSG_QWP": 0.0,
     "PSA_QWP": 0.0,
     "PSA_Analyzer": 0.0,
+    "SAMPLE": 0.0,
 }
 ```
 
