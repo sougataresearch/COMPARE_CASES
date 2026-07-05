@@ -197,10 +197,17 @@ def initialize_motors(motors: MotorController, timing: TimingSettings) -> None:
     """Run the full hardware bring-up sequence for the active motors, with
     an operator confirmation gate before each stage:
     discover -> connect_all -> initialize_all -> enable_all ->
-    set_all_velocity -> home_all -> move_to_optical_zero_all. Called once
-    per session (not per sample — see run_fresh_session()), after the
+    (ask + set velocity) -> home_all -> move_to_optical_zero_all. Called
+    once per session (not per sample — see run_fresh_session()), after the
     "Begin hardware initialization?" confirmation. See motor_controller.py
     for what each stage does.
+
+    The velocity/acceleration prompt is pre-filled with config.py's
+    rotation_velocity_deg_s/rotation_accel_deg_s2 (press Enter to accept
+    them as-is, or type a different number for this session) — same
+    ask-with-a-default pattern as guided_camera_setup()'s exposure/frame
+    rate prompts, rather than silently applying the config default with no
+    chance to override it per run.
     """
 
     motors.discover()
@@ -210,8 +217,14 @@ def initialize_motors(motors: MotorController, timing: TimingSettings) -> None:
     motors.initialize_all()
     confirm_stage("Initialization complete. Enable motors?")
     motors.enable_all()
-    confirm_stage("Motors enabled. Set rotation velocity/acceleration?")
-    motors.set_all_velocity(timing.rotation_velocity_deg_s, timing.rotation_accel_deg_s2)
+    print("Motors enabled.")
+    velocity = ask_positive_float(
+        "Rotation velocity for all active motors (deg/s)", timing.rotation_velocity_deg_s
+    )
+    accel = ask_positive_float(
+        "Rotation acceleration for all active motors (deg/s^2)", timing.rotation_accel_deg_s2
+    )
+    motors.set_all_velocity(velocity, accel)
     confirm_stage("Velocity set. Home active motors?")
     motors.home_all()
     confirm_stage("Homing complete. Move to configured optical zero offsets?")
@@ -226,13 +239,17 @@ def setup_sample_stage(timing: TimingSettings, dry_run: bool) -> float | None:
     capture_camera_references() (which needs an empty beam path). If the
     operator says yes, this runs the exact same bring-up sequence as
     initialize_motors() — discover -> connect -> initialize -> enable ->
-    set_all_velocity -> home — but scoped to just the "SAMPLE" motor
-    (config.MOTOR_SN["SAMPLE"]/ZERO_OFFSET["SAMPLE"]), since
-    MotorController.names is otherwise fixed to
-    whatever ACTIVE_MOTORS[mode] chose for this session. Then asks the
-    target optical angle (e.g. 30, 45, or any arbitrary angle) and moves
-    there via optical_to_motor(angle, ZERO_OFFSET["SAMPLE"]) so the operator
-    can verify the orientation with a polarimeter.
+    (ask + set velocity) -> home -> move to optical zero — but scoped to
+    just the "SAMPLE" motor (config.MOTOR_SN["SAMPLE"]/
+    ZERO_OFFSET["SAMPLE"]), since MotorController.names is otherwise fixed
+    to whatever ACTIVE_MOTORS[mode] chose for this session. Moving to
+    optical zero right after homing (before asking for the real target
+    angle) is a sanity checkpoint that the configured offset is loading
+    correctly — the same reference move initialize_motors() does for the
+    other motors. Then asks the target optical angle (e.g. 30, 45, or any
+    arbitrary angle) and moves there via optical_to_motor(angle,
+    ZERO_OFFSET["SAMPLE"]) so the operator can verify the orientation with
+    a polarimeter.
 
     Once verified, the SAMPLE stage is disconnected again immediately — the
     operator then physically lifts the whole mounted assembly out of the
@@ -257,10 +274,18 @@ def setup_sample_stage(timing: TimingSettings, dry_run: bool) -> float | None:
     sample_motor.initialize_all()
     confirm_stage("SAMPLE stage initialized. Enable it?")
     sample_motor.enable_all()
-    confirm_stage("SAMPLE stage enabled. Set rotation velocity/acceleration?")
-    sample_motor.set_all_velocity(timing.rotation_velocity_deg_s, timing.rotation_accel_deg_s2)
-    confirm_stage("Velocity set. Home it?")
+    print("SAMPLE stage enabled.")
+    velocity = ask_positive_float(
+        "SAMPLE stage rotation velocity (deg/s)", timing.rotation_velocity_deg_s
+    )
+    accel = ask_positive_float(
+        "SAMPLE stage rotation acceleration (deg/s^2)", timing.rotation_accel_deg_s2
+    )
+    sample_motor.set_all_velocity(velocity, accel)
+    confirm_stage("Velocity set. Home the SAMPLE stage?")
     sample_motor.home_all()
+    confirm_stage("Homing complete. Move to the configured optical zero offset?")
+    sample_motor.move_to_optical_zero_all()
 
     optical_angle = ask_float(
         "Sample optical angle to set on the SAMPLE stage (e.g. 30, 45, or any arbitrary angle): "

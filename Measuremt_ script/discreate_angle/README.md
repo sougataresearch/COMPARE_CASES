@@ -300,15 +300,31 @@ whatever happened to already be stored on the device or its Kinesis
 profile. This is the same trapezoidal profile `MoveTo()` uses for every
 point-to-point move (homing, optical-zero, every measurement state), so
 every motor moves at a known, reproducible speed regardless of what was
-last configured in the Kinesis application. Configured in `config.py`:
+last configured in the Kinesis application.
+
+You are asked for both numbers every session, pre-filled with `config.py`'s
+defaults — press Enter to keep the default, or type a new value to
+override it just for this run (same pattern as the exposure/frame-rate
+prompts in camera setup):
+
+```text
+Rotation velocity for all active motors (deg/s) [10]: 15
+Rotation acceleration for all active motors (deg/s^2) [20]:
+```
+
+The example above types `15` for velocity and presses Enter (blank) to
+accept the `20` default for acceleration. To change what's pre-filled on
+every future run, edit `config.py`:
 
 ```python
 TimingSettings.rotation_velocity_deg_s = 10.0   # deg/s, all active motors
 TimingSettings.rotation_accel_deg_s2 = 20.0      # deg/s^2, all active motors
 ```
 
-The motorized `SAMPLE` stage (below) gets the same explicit velocity
-applied during its own bring-up.
+The motorized `SAMPLE` stage (below) is asked the same two prompts
+separately during its own bring-up, since it's a different, single-axis
+`MotorController` instance — its answers only apply to that stage, not the
+other motors.
 
 ## Motorized SAMPLE stage (optional, per sample)
 
@@ -321,9 +337,11 @@ Do you have a motorized SAMPLE stage for this sample?
 ```
 
 Answering yes runs the exact same bring-up sequence as the other motors —
-discover → connect → initialize → enable → home — scoped to just the
-`SAMPLE` axis, then asks for the target optical angle (e.g. `30`, `45`, or
-any arbitrary angle) and moves there:
+discover → connect → initialize → enable → (ask + set velocity) → home →
+move to optical zero — scoped to just the `SAMPLE` axis. Moving to optical
+zero right after homing is a sanity checkpoint (confirms the configured
+offset is loading correctly) before asking for the real target angle, e.g.
+`30`, `45`, or any arbitrary angle, and moving there:
 
 ```text
 motor angle = (sample optical angle + ZERO_OFFSET["SAMPLE"]) modulo 360

@@ -118,10 +118,12 @@ Do you have a motorized SAMPLE stage for this sample?
 ```
 
 Answering yes runs the exact same bring-up sequence as the other motors —
-discover → connect → initialize → enable → set velocity → home — scoped to
-just the `SAMPLE` axis, then asks for the target optical angle (e.g. `30`, `45`, or
-any arbitrary angle) and moves there (`motor angle = (optical angle +
-ZERO_OFFSET["SAMPLE"]) modulo 360`). Verify that orientation with a
+discover → connect → initialize → enable → (ask + set velocity) → home →
+move to optical zero — scoped to just the `SAMPLE` axis. Moving to optical
+zero right after homing is a sanity checkpoint (confirms the configured
+offset is loading correctly) before asking for the real target angle, e.g.
+`30`, `45`, or any arbitrary angle, and moving there (`motor angle =
+(optical angle + ZERO_OFFSET["SAMPLE"]) modulo 360`). Verify that orientation with a
 polarimeter, confirm, and the SAMPLE stage is disconnected again
 immediately — set the mounted assembly aside while the rest of instrument
 setup (bright/dark reference capture) runs with an empty beam, then
@@ -140,15 +142,29 @@ Every active motor's velocity/acceleration is set explicitly in software
 (`MotorController.set_all_velocity()`, Kinesis `SetVelocityParams()`) once
 per session, after `enable_all()` and before `home_all()` — **not** left at
 whatever happened to already be stored on the device or its Kinesis
-profile. At bring-up time this applies `TimingSettings
-.base_angular_velocity_deg_s` (default 10 deg/s) uniformly to all four
-motors, since no sample's rotation ratio is known yet. Once a sample's
-ratio is chosen and continuous spinning is about to start, the (currently
-unimplemented) `continuous_engine.py` re-sets `PSA_QWP`'s velocity to
-`base_angular_velocity_deg_s × ratio` — e.g. `10 × 5 = 50 deg/s` for a
-`1:5` ratio — while `PSG_QWP` stays at the base rate (see that module's
-docstring, step 3). The motorized `SAMPLE` stage (above) gets the same
-explicit baseline velocity applied during its own bring-up.
+profile. You are asked for both numbers every session, pre-filled with
+`config.py`'s defaults — press Enter to keep the default, or type a new
+value to override it just for this run:
+
+```text
+Rotation velocity for all active motors (deg/s) [10]: 15
+Rotation acceleration for all active motors (deg/s^2) [20]:
+```
+
+The example above types `15` for velocity and presses Enter (blank) to
+accept the `20` default for acceleration. This applies uniformly to all
+four motors, since no sample's rotation ratio is known yet at bring-up
+time. Once a sample's ratio is chosen and continuous spinning is about to
+start, the (currently unimplemented) `continuous_engine.py` re-sets
+`PSA_QWP`'s velocity to `base_angular_velocity_deg_s × ratio` — e.g.
+`10 × 5 = 50 deg/s` for a `1:5` ratio — while `PSG_QWP` stays at the base
+rate (see that module's docstring, step 3). To change what's pre-filled on
+every future run, edit `config.py`'s `TimingSettings
+.base_angular_velocity_deg_s`/`rotation_accel_deg_s2`.
+
+The motorized `SAMPLE` stage (above) is asked the same two prompts
+separately during its own bring-up, since it's a different, single-axis
+`MotorController` instance.
 
 ## The one open decision blocking the acquisition loop
 
