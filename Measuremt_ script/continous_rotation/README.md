@@ -192,8 +192,29 @@ earlier completed samples are unaffected).
 `config.py`'s `MOTOR_SN` and `ZERO_OFFSET` are duplicated by hand from
 `../discreate_angle/config.py`, not imported — if you recalibrate a motor
 or swap hardware, update both files (or run `../check_config_sync.py` to
-check they still agree). Both also carry a `"SAMPLE"` entry for
-the optional motorized `SAMPLE` stage used by
+check they still agree):
+
+```python
+MOTOR_SN = {
+    "PSG_Polarizer": "...",
+    "PSG_QWP": "...",
+    "PSA_QWP": "...",
+    "PSA_Analyzer": "...",
+    # Only fill this in if you have a motorized SAMPLE stage (see
+    # "Motorized SAMPLE stage" above). Leave "" if the sample is placed by hand.
+    "SAMPLE": "",
+}
+
+ZERO_OFFSET = {
+    "PSG_Polarizer": 0.0,
+    "PSG_QWP": 0.0,
+    "PSA_QWP": 0.0,
+    "PSA_Analyzer": 0.0,
+    "SAMPLE": 0.0,
+}
+```
+
+The `"SAMPLE"` entry is for the optional motorized `SAMPLE` stage, used by
 `calibration.verify_with_reference_sample()` (a known reference optic) and
 by `01_main.setup_sample_stage()` (orienting a real specimen); it is not
 part of `ACTIVE_MOTORS`.
