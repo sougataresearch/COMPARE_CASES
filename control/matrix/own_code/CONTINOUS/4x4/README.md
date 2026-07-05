@@ -83,10 +83,16 @@ either to accept the suggested default shown in brackets — the ideal values
 after that (remembered in `.last_calibration.json` next to `main.py`, not
 committed to git).
 
-Results are saved to `own_code/CONTINOUS/4x4/Results/<run folder name>/` by
-default — deliberately *not* inside the data folder, since `RUN_DIRECTORY`
-may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at the top of
-`main.py` if you want them somewhere specific instead.
+Results are saved to
+`own_code/CONTINOUS/4x4/Results/<date>/.../<run folder name>/` by default —
+if `RUN_DIRECTORY` sits under a dated `Data/<8-digit-date>/...` layout, that
+same date/sample-type path is mirrored under `Results/` so the same sample
+name captured on a different date doesn't collide with an earlier result;
+otherwise it falls back to just `Results/<run folder name>/` (the common
+case for continuous captures, which aren't usually organized by date). This
+is deliberately *not* inside the data folder either way, since
+`RUN_DIRECTORY` may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at
+the top of `main.py` if you want them somewhere specific instead.
 
 You can also pass everything as command-line arguments instead of editing
 the file or answering the prompts:
@@ -103,7 +109,7 @@ python main.py "G:\control\Data\continuous\sample2" --out "G:\some\other\folder"
 has a small `__main__` for a quick print-only check without saving any
 files: `python solve_mueller.py <run_directory>`.
 
-## What gets written to `Results/<run folder name>/`
+## What gets written to `Results/<date>/.../<run folder name>/`
 
 | File | Contents |
 |---|---|

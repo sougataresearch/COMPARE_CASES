@@ -133,8 +133,13 @@ first time you run this, then whatever you entered last time after that
 (remembered in `.last_calibration.json` next to `main.py`, not committed to
 git).
 
-Results are saved to `own_code/3x3/Results/<run folder name>/` by default
-(e.g. `Results/lp30/`) -- deliberately *not* inside the data folder, since
+Results are saved to `own_code/3x3/Results/<date>/.../<run folder name>/` by
+default -- the run directory's own date/sample-type path is mirrored under
+`Results/` (e.g. `Data/03072026/lp/lp30` -> `Results/03072026/lp/lp30/`), so
+the same sample name captured on a different date doesn't collide with or
+overwrite an earlier result. If `RUN_DIRECTORY` isn't under a dated
+`Data/<8-digit-date>/...` layout, it falls back to just `Results/<run folder
+name>/`. This is deliberately *not* inside the data folder either way, since
 `RUN_DIRECTORY` may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at
 the top of `main.py` if you want them somewhere specific instead.
 
@@ -158,7 +163,7 @@ If you point this at a run whose `experiment_config.json` says `"mode":
 "4x4"`, it will refuse with a clear error instead of silently misreading the
 filenames -- use `own_code/4x4` for that run instead.
 
-## What gets written to `Results/<run folder name>/`
+## What gets written to `Results/<date>/.../<run folder name>/`
 
 | File | Contents |
 |---|---|

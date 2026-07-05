@@ -1,48 +1,53 @@
-# CONTROL
+# COMPARE_CASES
 
-Control and analysis software for a Mueller Matrix Imaging Ellipsometer (MMIE):
-four Thorlabs K10CR2/M rotation mounts (two polarizers, two quarter-wave
-plates) driven through Thorlabs Kinesis, and one IDS U3-3890CP-M-GL camera
-driven through the IDS Peak SDK.
+Control and analysis software for a Mueller Matrix Imaging Ellipsometer (MMIE)
+(`control/`), plus two standalone analysis tools that empirically compare
+9-image angle-subset Mueller matrix reconstructions against the full
+over-determined capture (`angle_subset_comparison/`, `subset_error_analysis/`).
 
 ## Repository layout
 
 ```
-control/
-├── Measuremt_ script/
-│   ├── discreate_angle/       ← 3x3 and 4x4 discrete acquisition (production)
-│   ├── continous_rotation/    ← 4x4 continuous rotation (independent, WIP)
-│   ├── MMIE_Control/          ← earlier notebook-based reference implementation
-│   └── check_config_sync.py   ← standalone: diffs motor calibration between the two folders
-└── matrix/                    ← offline Mueller matrix reconstruction from saved images
-    ├── NAMING.md               ← the one folder-naming rule, used by every capture
-    ├── own_code/
-    │   ├── DISCRETE/
-    │   │   ├── 3x3/            ← reconstructs a 3x3 Mueller matrix from discrete-angle images
-    │   │   └── 4x4/            ← reconstructs a full 4x4 Mueller matrix from discrete-angle images
-    │   └── CONTINOUS/
-    │       └── 4x4/            ← reconstructs a full 4x4 Mueller matrix from a continuous-rotation run
-    ├── tinghuye/                ← earlier from-scratch reconstruction scripts, kept for reference
-    └── Mueller_calculation_36_images_method.py  ← reference-paper's canonical 36-image method
+COMPARE_CASES/
+├── control/                    ← MMIE hardware control + Mueller matrix reconstruction
+│   ├── Measuremt_ script/
+│   │   ├── discreate_angle/       ← 3x3 and 4x4 discrete acquisition (production)
+│   │   ├── continous_rotation/    ← 4x4 continuous rotation (independent, WIP)
+│   │   ├── MMIE_Control/          ← earlier notebook-based reference implementation
+│   │   └── check_config_sync.py   ← standalone: diffs motor calibration between the two folders
+│   ├── matrix/                    ← offline Mueller matrix reconstruction from saved images
+│   │   ├── NAMING.md               ← the one folder-naming rule, used by every capture
+│   │   ├── own_code/
+│   │   │   ├── DISCRETE/
+│   │   │   │   ├── 3x3/            ← reconstructs a 3x3 Mueller matrix from discrete-angle images
+│   │   │   │   └── 4x4/            ← reconstructs a full 4x4 Mueller matrix from discrete-angle images
+│   │   │   └── CONTINOUS/
+│   │   │       └── 4x4/            ← reconstructs a full 4x4 Mueller matrix from a continuous-rotation run
+│   │   ├── tinghuye/                ← earlier from-scratch reconstruction scripts, kept for reference
+│   │   └── Mueller_calculation_36_images_method.py  ← reference-paper's canonical 36-image method
+│   └── Data/                      ← captured images, organized Data/<date>/<sample-type>/<sample> (gitignored)
+├── angle_subset_comparison/    ← single-sample angle-subset vs. theory comparison (see below)
+└── subset_error_analysis/      ← multi-sample angle-subset vs. theory comparison (see below)
 ```
 
-**The whole project, end to end:** capture images with an acquisition
-folder under `Measuremt_ script/` → copy that run's images and config into a
-sample-labeled folder following `matrix/NAMING.md` → run the matching
-pipeline under `matrix/own_code/DISCRETE/` or `matrix/own_code/CONTINOUS/`
+**The whole `control/` project, end to end:** capture images with an
+acquisition folder under `control/Measuremt_ script/` → copy that run's
+images and config into a sample-labeled folder following
+`control/matrix/NAMING.md` → run the matching pipeline under
+`control/matrix/own_code/DISCRETE/` or `control/matrix/own_code/CONTINOUS/`
 to get a reconstructed Mueller matrix. Each destination has its own README
 with a "physics background, from zero" section — together they explain,
 from no prior assumed knowledge, what a Stokes vector and a Mueller matrix
 are, why the rig rotates the motors it does, and exactly how the images
 turn into a matrix.
 
-The two acquisition folders under `Measuremt_ script/` are **deliberately
-independent** — neither imports from the other, and neither shares a `Data/`
-run directory. They cover different experiment shapes and evolved to have
-different acquisition loops, so keeping them separate avoids one mode's
-control flow leaking into the other's.
+The two acquisition folders under `control/Measuremt_ script/` are
+**deliberately independent** — neither imports from the other, and neither
+shares a `Data/` run directory. They cover different experiment shapes and
+evolved to have different acquisition loops, so keeping them separate avoids
+one mode's control flow leaking into the other's.
 
-### `Measuremt_ script/discreate_angle/`
+### `control/Measuremt_ script/discreate_angle/`
 
 The current, working entry point for **3×3** (2 polarizers) and **4×4
 discrete** (2 polarizers + 2 stepped QWPs) Mueller matrix acquisition. Run
@@ -61,7 +66,7 @@ single-sample only), CSV logging, and a final report per sample round out
 the flow. See its own `README.md` for full operator instructions and a
 function-by-function reference.
 
-### `Measuremt_ script/continous_rotation/`
+### `control/Measuremt_ script/continous_rotation/`
 
 The entry point for **4×4 continuous rotation only** (a 3×3 continuous mode
 — dual rotating linear polarizers, no QWPs — was considered and
@@ -79,13 +84,13 @@ chosen over frame-rate free-run because the reconstruction side needs
 images at known angles regardless of real hardware's velocity ripple; see
 that module's docstring for the full reasoning.
 
-### `Measuremt_ script/MMIE_Control/`
+### `control/Measuremt_ script/MMIE_Control/`
 
 An earlier, notebook-driven (`NB0`–`NB4`) reference implementation of the
 same hardware control, kept for comparison. Not required to run either
 folder above.
 
-### `matrix/`
+### `control/matrix/`
 
 Everything here is offline: it reads previously captured images and never
 touches the motors or camera. Nothing in `matrix/` is imported by, or
@@ -103,16 +108,21 @@ modifies, anything under `Measuremt_ script/`.
   air, a polarizer, a QWP, tissue — since the sample's identity never
   enters the code. `main.py` is the one file you run for a single capture;
   `average_rounds.py` aggregates several repeat rounds of the same sample
-  into a mean and standard deviation. See its `README.md` for a full
-  physics primer (assuming no prior polarimetry background) and a
-  function-by-function walkthrough.
+  into a mean and standard deviation. `validate_against_theory.py` checks
+  reconstructions against known-theory samples (air, lp, qwp). See its
+  `README.md` for a full physics primer (assuming no prior polarimetry
+  background) and a function-by-function walkthrough. Results (from
+  `main.py`, `average_rounds.py`, and `validate_against_theory.py`) are
+  saved under `Results/`, mirroring the same `<date>/<sample-type>/<sample>`
+  path each run has under `Data/`, so the same sample name captured on a
+  different date never overwrites an earlier result.
 
 - **`own_code/DISCRETE/4x4/`** — the full 4×4 counterpart for
   `discreate_angle/`'s discrete-angle acquisition: same architecture, same
-  usage pattern (`main.py` / `average_rounds.py`), but models the rig's
-  fixed-polarizer + rotating-QWP generator/analyzer instead, so it can also
-  recover the circular-polarization-coupled entries a 3×3 measurement
-  cannot see.
+  usage pattern (`main.py` / `average_rounds.py` / `validate_against_theory.py`),
+  but models the rig's fixed-polarizer + rotating-QWP generator/analyzer
+  instead, so it can also recover the circular-polarization-coupled entries
+  a 3×3 measurement cannot see.
 
   `own_code/DISCRETE/3x3/` and `own_code/DISCRETE/4x4/` are deliberately
   independent — no shared files, each with its own complete copy of the
@@ -150,7 +160,7 @@ modifies, anything under `Measuremt_ script/`.
   method to estimate the Mueller matrix in bright-field microscopy,"*
   Applied Optics (2021).
 
-### `Measuremt_ script/check_config_sync.py`
+### `control/Measuremt_ script/check_config_sync.py`
 
 Standalone diagnostic (not called by either `01_main.py`) that diffs
 `MOTOR_SN`/`ZERO_OFFSET` between the two acquisition folders' `config.py`
@@ -159,7 +169,7 @@ catches them drifting apart after a recalibration or hardware swap in only
 one file. Run `python check_config_sync.py` from inside `Measuremt_ script/`
 after any hardware change.
 
-## Getting started
+## Getting started with `control/`
 
 1. Install Thorlabs Kinesis (64-bit) and the IDS Peak SDK on the lab PC.
 2. Pick the acquisition folder matching your experiment (`discreate_angle`
@@ -186,6 +196,32 @@ after any hardware change.
 
    New to the physics behind any of this? Start with the "Physics
    background, from zero" section in
-   `Measuremt_ script/discreate_angle/README.md` or
-   `matrix/own_code/DISCRETE/3x3/README.md` — either builds the same ideas
-   up from no prior assumed knowledge.
+   `control/Measuremt_ script/discreate_angle/README.md` or
+   `control/matrix/own_code/DISCRETE/3x3/README.md` — either builds the same
+   ideas up from no prior assumed knowledge.
+
+## `angle_subset_comparison/` and `subset_error_analysis/`
+
+Both tools answer the same question: a 3x3 Mueller matrix only needs 9
+images (3 PSG angles x 3 PSA angles) to solve for, but a run may capture more
+than that (e.g. 36 images at 6x6 angles) for an over-determined fit. Does
+using all of them actually reduce error against the known theoretical
+matrix, or does some specific 9-image subset (e.g. `(0,30,120)`) do just as
+well or better? Each is fully self-contained — its own copy of the
+rotation-sandwich physics, image loader, and theoretical-matrix formulas —
+and only ever *reads* from `control/Data/`, never writes there.
+
+- **`angle_subset_comparison/`** — processes one sample run at a time (edit
+  `SAMPLE_DIRECTORY` in `compare_subsets.py` and rerun per sample).
+- **`subset_error_analysis/`** — processes every over-determined run found
+  under `control/Data/` automatically in one execution (asks you to confirm
+  the discovered run list first, in case a folder is missing).
+
+Both write, per sample, into `Results/<date>/.../<sample>/` (mirroring the
+same date/sample-type path as `control/Data/`):
+- `matrices.txt` / `matrices.json` — the theoretical matrix, the full
+  all-angles reconstruction, and every 9-image subset's actual reconstructed
+  Mueller matrix plus its element-wise difference from theory.
+- `deviation_chart.png` — one bar chart, every angle combination (plus the
+  full-angle capture) sorted so the lowest bar is the combination that
+  deviates least from theory.
