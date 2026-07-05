@@ -69,20 +69,31 @@ else. Then:
 python main.py
 ```
 
+You'll be prompted in the terminal for the polarizer extinction ratio and
+the QWP retardance:
+
+```text
+Polarizer extinction ratio Imin/Imax [0]: 0.02
+QWP retardance in degrees [90]: 88.5
+```
+
+Type your measured values and press Enter, or just press Enter (blank) on
+either to accept the suggested ideal default shown in brackets.
+
 Results are saved to `own_code/CONTINOUS/4x4/Results/<run folder name>/` by
 default — deliberately *not* inside the data folder, since `RUN_DIRECTORY`
 may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at the top of
 `main.py` if you want them somewhere specific instead.
 
 You can also pass everything as command-line arguments instead of editing
-the file:
+the file or answering the prompts:
 
 ```
 python main.py "G:\control\Data\continuous\sample2" --out "G:\some\other\folder" --extinction 0.02 --retardance 88.5
 ```
 
-- `--extinction` — measured polarizer extinction ratio (Imin/Imax). Default `0` = ideal polarizer.
-- `--retardance` — measured QWP retardance in degrees. Default `90` = ideal quarter-wave plate.
+- `--extinction` — measured polarizer extinction ratio (Imin/Imax). Omit it to be prompted interactively instead.
+- `--retardance` — measured QWP retardance in degrees. Omit it to be prompted interactively instead.
 
 `main.py` is the only file you run. `image_loader.py` and
 `solve_mueller.py` are library modules it imports — `solve_mueller.py` also
@@ -127,10 +138,11 @@ files: `python solve_mueller.py <run_directory>`.
 
 By default the polarizer is modeled as ideal (extinction ratio `0`, perfect
 axis) and the QWP as an ideal quarter-wave plate (retardance exactly `90`).
-Pass `--extinction`/`--retardance` (or the same-named `reconstruct()`
-arguments) once you have measured values for your actual optics — using
-the ideal defaults while real optics deviate from them carries a small
-systematic bias into the reconstruction, exactly as in the discrete
+`main.py` prompts for both every run (or accepts `--extinction`/
+`--retardance` on the command line) rather than silently assuming ideal
+values — type your measured values at the prompts once you have them.
+Accepting the ideal defaults while real optics deviate from them carries a
+small systematic bias into the reconstruction, exactly as in the discrete
 pipeline.
 
 ## What you'd need to change to run this on new data

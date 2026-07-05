@@ -84,20 +84,32 @@ this project, or on the same drive as anything else. Then:
 python main.py
 ```
 
+You'll be prompted in the terminal for the polarizer extinction ratio and
+the QWP retardance:
+
+```text
+Polarizer extinction ratio Imin/Imax [0]: 0.02
+QWP retardance in degrees [90]: 88.5
+```
+
+Type your measured values and press Enter, or just press Enter (blank) on
+either to accept the suggested ideal default shown in brackets.
+
 Results are saved to `own_code/4x4/Results/<run folder name>/` by default
 (e.g. `Results/qwp90/`) -- deliberately *not* inside the data folder, since
 `RUN_DIRECTORY` may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at
 the top of `main.py` if you want them somewhere specific instead.
 
 You can also pass everything as command-line arguments instead of editing
-the file, e.g. for scripting multiple runs without touching `main.py`:
+the file or answering the prompts, e.g. for scripting multiple runs without
+touching `main.py`:
 
 ```
 python main.py "G:\control\Data\03072026\qwp\qwp45" --out "G:\some\other\folder" --extinction 0.02 --retardance 88.5
 ```
 
-- `--extinction` -- measured polarizer extinction ratio (Imin/Imax). Default `0` = ideal polarizer.
-- `--retardance` -- measured QWP retardance in degrees. Default `90` = ideal quarter-wave plate.
+- `--extinction` -- measured polarizer extinction ratio (Imin/Imax). Omit it to be prompted interactively instead.
+- `--retardance` -- measured QWP retardance in degrees. Omit it to be prompted interactively instead.
 
 `main.py` is the only file you run. `image_loader.py` and
 `solve_mueller.py` are library modules it imports -- they are not meant to
@@ -217,12 +229,12 @@ saturation, or a bad image.
 
 By default the polarizer is modeled as ideal (extinction ratio `0`, perfect
 axis) and the QWP as an ideal quarter-wave plate (retardance exactly `90`).
-These are the two optional parameters on `reconstruct()` / `main.py`'s
-`--extinction` / `--retardance` flags. If you use the ideal defaults while
-your real optics deviate from them, the reconstruction will carry a small
-systematic bias -- pass your measured values once you have them (see the
-calibration discussion from the planning conversation; that step is not yet
-implemented as code here).
+These are the two parameters on `reconstruct()`, and `main.py` prompts for
+both every run (or accepts `--extinction`/`--retardance` on the command
+line) rather than silently assuming ideal values. If you accept the ideal
+defaults while your real optics deviate from them, the reconstruction will
+carry a small systematic bias -- type your measured values at the prompts
+once you have them.
 
 ## What you'd need to change to run this on new data
 

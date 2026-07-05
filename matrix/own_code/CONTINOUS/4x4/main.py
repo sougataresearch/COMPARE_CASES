@@ -10,14 +10,19 @@ for what each one does and how this differs from the discrete pipeline
 
 To run: edit RUN_DIRECTORY below to point at whatever continuous 4x4 run
 you want to process (it does not need to live under this project at all),
-then just run this file -- no arguments required.
+then just run this file:
 
     python main.py
 
-CLI arguments still work too, and override RUN_DIRECTORY/OUTPUT_DIRECTORY
-for a one-off run without editing the file:
+You will be prompted in the terminal for the polarizer extinction ratio and
+the QWP retardance (press Enter on either to accept the suggested ideal
+default: 0 and 90). Pass --extinction/--retardance on the command line
+instead to skip the prompts for a one-off/scripted run:
 
     python main.py <run_directory> [--out OUTPUT_DIR] [--extinction E] [--retardance R]
+
+CLI arguments also override RUN_DIRECTORY/OUTPUT_DIRECTORY without editing
+the file.
 """
 
 from __future__ import annotations
@@ -82,6 +87,24 @@ def default_output_directory(run_dir: Path) -> Path:
     return Path(__file__).resolve().parent / "Results" / run_dir.name
 
 
+def ask_float(prompt: str, default: float) -> float:
+    """Ask for a numeric value, showing ``default`` in brackets; press Enter
+    (blank input) to accept it as-is. Loops until a parseable number is
+    entered. Used for extinction_ratio/retardance_deg, since these are real,
+    per-optic calibration numbers the operator should confirm every run
+    rather than silently inheriting whatever default happens to be in this
+    file."""
+
+    while True:
+        text = input(f"{prompt} [{default:g}]: ").strip()
+        if not text:
+            return default
+        try:
+            return float(text)
+        except ValueError:
+            print("Enter a numeric value.")
+
+
 def save_outputs(result: MuellerResult4x4, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -130,17 +153,25 @@ def main() -> None:
                               "set at the top of this file)")
     parser.add_argument("--out", default=None,
                          help="Output folder (default: OUTPUT_DIRECTORY set at the top of this file)")
-    parser.add_argument("--extinction", type=float, default=0.0,
-                         help="Polarizer extinction ratio Imin/Imax (default: ideal, 0)")
-    parser.add_argument("--retardance", type=float, default=90.0,
-                         help="QWP retardance in degrees (default: ideal, 90)")
+    parser.add_argument("--extinction", type=float, default=None,
+                         help="Polarizer extinction ratio Imin/Imax; omit to be "
+                              "prompted for it interactively (suggested default: ideal, 0)")
+    parser.add_argument("--retardance", type=float, default=None,
+                         help="QWP retardance in degrees; omit to be prompted for it "
+                              "interactively (suggested default: ideal, 90)")
     args = parser.parse_args()
 
     run_dir = Path(args.run_directory or RUN_DIRECTORY)
     out_dir = Path(args.out or OUTPUT_DIRECTORY) if (args.out or OUTPUT_DIRECTORY) else default_output_directory(run_dir)
+    extinction_ratio = args.extinction if args.extinction is not None else ask_float(
+        "Polarizer extinction ratio Imin/Imax", 0.0
+    )
+    retardance_deg = args.retardance if args.retardance is not None else ask_float(
+        "QWP retardance in degrees", 90.0
+    )
 
     run = load_run(run_dir)
-    result = reconstruct(run, extinction_ratio=args.extinction, retardance_deg=args.retardance)
+    result = reconstruct(run, extinction_ratio=extinction_ratio, retardance_deg=retardance_deg)
     save_outputs(result, out_dir)
 
     np.set_printoptions(precision=4, suppress=True)

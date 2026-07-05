@@ -121,19 +121,29 @@ drive as anything else. Then:
 python main.py
 ```
 
+You'll be prompted in the terminal for the polarizer extinction ratio:
+
+```text
+Polarizer extinction ratio Imin/Imax [0]: 0.02
+```
+
+Type your measured value and press Enter, or just press Enter (blank) to
+accept the suggested ideal default (`0`).
+
 Results are saved to `own_code/3x3/Results/<run folder name>/` by default
 (e.g. `Results/lp30/`) -- deliberately *not* inside the data folder, since
 `RUN_DIRECTORY` may point somewhere else entirely. Set `OUTPUT_DIRECTORY` at
 the top of `main.py` if you want them somewhere specific instead.
 
 You can also pass everything as command-line arguments instead of editing
-the file, e.g. for scripting multiple runs without touching `main.py`:
+the file or answering the prompt, e.g. for scripting multiple runs without
+touching `main.py`:
 
 ```
 python main.py "G:\control\Data\03072026\lp\lp45" --out "G:\some\other\folder" --extinction 0.02
 ```
 
-- `--extinction` -- measured polarizer extinction ratio (Imin/Imax). Default `0` = ideal polarizer.
+- `--extinction` -- measured polarizer extinction ratio (Imin/Imax). Omit it to be prompted interactively instead.
 
 `main.py` is the only file you run. `image_loader.py` and
 `solve_mueller.py` are library modules it imports -- they are not meant to
@@ -252,12 +262,12 @@ saturation, or a bad image.
 ### Ideal vs. calibrated optics
 
 By default the polarizer is modeled as ideal (extinction ratio `0`, perfect
-axis). This is the one optional parameter on `reconstruct()` /
-`main.py`'s `--extinction` flag. If you use the ideal default while your
-real polarizers deviate from it, the reconstruction will carry a small
-systematic bias -- pass your measured value once you have one (see the
-calibration discussion from the planning conversation; that step is not yet
-implemented as code here).
+axis). This is the one parameter on `reconstruct()`, and `main.py` prompts
+for it every run (or accepts `--extinction` on the command line) rather
+than silently assuming the ideal value. If you accept the ideal default
+while your real polarizers deviate from it, the reconstruction will carry a
+small systematic bias -- type your measured value at the prompt once you
+have one.
 
 ## What you'd need to change to run this on new data
 
